@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api, logoutUser } from '../lib/api';
 import { 
   FileText, Upload, Trash2, LogOut, User as UserIcon, Plus, 
   FolderOpen, Calendar, HardDrive, Shield, Sparkles, RefreshCw, Download, Play, ExternalLink
 } from 'lucide-react';
 
+
 export const Dashboard: React.FC = () => {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
@@ -302,7 +305,7 @@ export const Dashboard: React.FC = () => {
                               <FileText className="w-5 h-5 text-brand-primary" />
                             </div>
                             <div className="overflow-hidden">
-                              <span className="text-sm font-medium text-white block truncate hover:underline cursor-pointer" onClick={() => handleDownload(doc.id)}>
+                              <span className="text-sm font-medium text-white block truncate hover:text-brand-primary cursor-pointer transition-colors" onClick={() => navigate(`/documents/${doc.id}`)}>
                                 {doc.name}
                               </span>
                               <div className="flex items-center gap-3 text-[10px] text-brand-textMuted mt-0.5">

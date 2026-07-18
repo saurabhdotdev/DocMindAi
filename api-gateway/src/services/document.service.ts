@@ -149,13 +149,15 @@ export class DocumentService {
         jobLogs: {
           orderBy: { createdAt: 'desc' }
         },
-        ocrResult: {
-          select: { id: true, createdAt: true } // Don't fetch full heavy OCR text by default
-        },
+        ocrResult: true, // Include full OCR text for detail view
         classification: true,
         resumeAnalysis: true,
+        entities: {
+          orderBy: { category: 'asc' }
+        },
       },
     });
+
 
     if (!document) {
       throw new AppError('Document not found or access denied', 404);

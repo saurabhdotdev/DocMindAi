@@ -4,6 +4,7 @@ import { JobType } from '@prisma/client';
 import { ConversionProcessor } from './conversion.processor';
 import { OcrProcessor } from './ocr.processor';
 import { ClassificationProcessor } from './classification.processor';
+import { EntityExtractionProcessor } from './entity.processor';
 
 export interface JobProcessorResult {
   success: boolean;
@@ -22,7 +23,7 @@ export const jobProcessors: Record<JobType, IJobProcessor | null> = {
   OCR: new OcrProcessor(),
   SUMMARIZATION: null,
   TRANSLATION: null,
-  ENTITY_EXTRACTION: null,
+  ENTITY_EXTRACTION: new EntityExtractionProcessor(),
   CLASSIFICATION: new ClassificationProcessor(),
   TABLE_EXTRACTION: null,
   AUDIO_AI: null,

@@ -19,15 +19,15 @@ async function streamToBuffer(stream: any): Promise<Buffer> {
   });
 }
 
-export class OcrProcessor implements IJobProcessor {
+export class EntityExtractionProcessor implements IJobProcessor {
   async process(job: Job<DocumentJobPayload>): Promise<JobProcessorResult> {
     const { documentId, options } = job.data;
-    logger.info(`[OcrProcessor] Running for document: ${documentId}`);
+    logger.info(`[EntityExtractionProcessor] Running for document: ${documentId}`);
 
     const document = await prisma.document.findUnique({ where: { id: documentId } });
     if (!document) throw new Error(`Document ${documentId} not found`);
 
-    // Use extracted text passed from classification job, or re-extract from S3
+    // Reuse pre-extracted text from chained classification job if available
     let extractedText: string = options?.extractedText || '';
 
     if (!extractedText) {
@@ -54,36 +54,39 @@ export class OcrProcessor implements IJobProcessor {
       extractedText = `Document: ${document.name}`;
     }
 
-    // Call AI Service for OCR layout analysis
-    const res = await fetch(`${AI_SERVICE_URL}/v1/ocr`, {
+    // Call AI Service for entity extraction
+    const res = await fetch(`${AI_SERVICE_URL}/v1/entities`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: extractedText }),
     });
 
-    if (!res.ok) throw new Error(`AI Service /ocr returned ${res.status}`);
+    if (!res.ok) throw new Error(`AI Service /entities returned ${res.status}`);
     const body: any = await res.json();
-    if (!body.success) throw new Error('AI Service OCR returned failure');
+    if (!body.success) throw new Error('AI Service entity extraction returned failure');
 
-    const layoutData = body.data;
-    logger.info(`[OcrProcessor] OCR complete — ${layoutData.pagesCount} pages, ${layoutData.blocks?.length} blocks`);
+    const entities: any[] = body.entities || [];
+    logger.info(`[EntityExtractionProcessor] Found ${entities.length} entities in document ${documentId}`);
 
-    // Save OCR result to DB (upsert safe)
-    const existing = await prisma.oCRResult.findUnique({ where: { documentId } });
-    if (existing) {
-      await prisma.oCRResult.update({
-        where: { documentId },
-        data: { text: extractedText, layout: layoutData },
-      });
-    } else {
-      await prisma.oCRResult.create({
-        data: { documentId, text: extractedText, layout: layoutData },
+    // Delete old entities and replace (clean slate on reprocess)
+    await prisma.entity.deleteMany({ where: { documentId } });
+
+    if (entities.length > 0) {
+      await prisma.entity.createMany({
+        data: entities.map((e: any) => ({
+          documentId,
+          name: e.name || e.value,
+          category: e.category,
+          value: e.value,
+          startChar: e.startChar ?? 0,
+          endChar: e.endChar ?? 0,
+        })),
       });
     }
 
     return {
       success: true,
-      data: { pagesCount: layoutData.pagesCount, blocksCount: layoutData.blocks?.length || 0 },
+      data: { entitiesFound: entities.length },
     };
   }
 }
