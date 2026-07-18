@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-brand-dark text-brand-text font-sans antialiased overflow-x-hidden;
+    background-image: 
+      radial-gradient(circle at 10% 20%, rgba(83, 109, 254, 0.05) 0%, transparent 40%),
+      radial-gradient(circle at 90% 80%, rgba(124, 77, 255, 0.05) 0%, transparent 40%);
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  /* Custom premium glassmorphism classes */
+  .glass-panel {
+    @apply bg-brand-card/75 border border-brand-border backdrop-blur-md shadow-xl shadow-black/20;
+  }
+
+  .glass-card {
+    @apply bg-brand-card/40 border border-brand-border/60 backdrop-blur-sm shadow-md hover:border-brand-primary/30 transition-all duration-300;
+  }
+
+  .glass-input {
+    @apply w-full bg-brand-dark/50 border border-brand-border rounded-lg px-4 py-2.5 text-brand-text placeholder-brand-textMuted focus:outline-none focus:border-brand-primary/80 focus:ring-1 focus:ring-brand-primary/30 transition-all duration-200;
+  }
+
+  .glass-button-primary {
+    @apply bg-gradient-to-r from-brand-primary to-brand-secondary text-white font-medium rounded-lg px-5 py-2.5 hover:from-brand-primary/95 hover:to-brand-secondary/95 shadow-lg shadow-brand-primary/20 hover:shadow-brand-primary/30 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .glass-button-secondary {
+    @apply bg-brand-card border border-brand-border text-brand-text font-medium rounded-lg px-5 py-2.5 hover:bg-brand-card/80 hover:border-brand-textMuted/30 active:scale-[0.98] transition-all duration-150;
+  }
+}
+
+/* Custom scrollbar layout */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-brand-dark;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-brand-border rounded-md hover:bg-brand-textMuted/40 transition-colors;
+}
