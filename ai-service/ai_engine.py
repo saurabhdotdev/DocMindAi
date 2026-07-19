@@ -98,6 +98,8 @@ def extract_entities(text: str):
         print("Groq API Key not found, falling back to regex entity extraction")
         return _fallback_extract_entities(text)
     
+    truncated_text = text[:10000] if len(text) > 10000 else text
+    
     try:
         prompt = f"""
         You are an expert data extraction assistant. Extract the following entities from the text below:
@@ -120,7 +122,7 @@ def extract_entities(text: str):
         Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
         
         Text:
-        {text}
+        {truncated_text}
         """
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -214,6 +216,8 @@ def analyze_resume_profile(text: str):
         print("Groq API Key not found, falling back to heuristic resume analysis")
         return _fallback_analyze_resume(text)
     
+    truncated_text = text[:10000] if len(text) > 10000 else text
+    
     try:
         prompt = f"""
         You are an expert ATS (Applicant Tracking System) resume analyzer. Analyze the resume text below.
@@ -238,7 +242,7 @@ def analyze_resume_profile(text: str):
         Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
         
         Resume Text:
-        {text}
+        {truncated_text}
         """
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -311,6 +315,53 @@ def _fallback_answer_question(text: str, question: str) -> str:
         
     return "I couldn't find a direct answer to your question in the document. Please configure the `GROQ_API_KEY` in the environment variables to enable advanced AI-powered Q&A."
 
+def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) -> str:
+    if not text:
+        return ""
+        
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    if len(text) < max_tokens * 4:
+        return text
+        
+    question_lower = question.lower()
+    keywords = [w for w in re.findall(r'\w+', question_lower) if w not in ["what", "is", "the", "are", "in", "of", "for", "on", "with", "where", "how", "who", "whom", "whose", "why", "can", "you", "tell", "me", "about"]]
+    
+    if not keywords:
+        return "\n".join(lines[:100])
+        
+    scored_lines = []
+    for idx, line in enumerate(lines):
+        score = sum(2 if kw in line.lower() else 0 for kw in keywords)
+        if score > 0:
+            scored_lines.append((score, idx, line))
+            
+    if not scored_lines:
+        return "\n".join(lines[:100])
+        
+    scored_lines.sort(key=lambda x: x[0], reverse=True)
+    
+    selected_indices = set()
+    for _, idx, _ in scored_lines[:20]:
+        for neighbor in range(max(0, idx - 2), min(len(lines), idx + 3)):
+            selected_indices.add(neighbor)
+            
+    sorted_indices = sorted(list(selected_indices))
+    
+    filtered_lines = []
+    last_idx = -1
+    for idx in sorted_indices:
+        if last_idx != -1 and idx > last_idx + 1:
+            filtered_lines.append("[...]")
+        filtered_lines.append(lines[idx])
+        last_idx = idx
+        
+    context = "\n".join(filtered_lines)
+    max_chars = max_tokens * 4
+    if len(context) > max_chars:
+        context = context[:max_chars] + "\n[Context truncated due to size limit]"
+        
+    return context
+
 def answer_question(text: str, question: str) -> str:
     client = get_groq_client()
     if not client:
@@ -331,10 +382,12 @@ def answer_question(text: str, question: str) -> str:
         6. Speak in a natural, helpful, and direct tone. Keep core facts grounded in the provided document details, but bring in external insights/rankings/standard evaluations for colleges/companies when requested.
         """
         
+        filtered_context = filter_relevant_context(text, question, max_tokens=1500)
+        
         prompt = f"""
-        Document Context:
+        Document Context (Filtered Snippets):
         ---
-        {text}
+        {filtered_context}
         ---
         
         Question: {question}
