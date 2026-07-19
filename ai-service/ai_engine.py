@@ -2,6 +2,7 @@ import re
 import os
 import json
 from groq import Groq
+import google.generativeai as genai
 
 def get_groq_client():
     api_key = os.getenv("GROQ_API_KEY")
@@ -11,6 +12,18 @@ def get_groq_client():
         return Groq(api_key=api_key)
     except Exception as e:
         print(f"Error initializing Groq client: {e}")
+        return None
+
+def get_gemini_client():
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        genai.configure(api_key=api_key)
+        # Using gemini-2.5-flash which is the current fast default model
+        return genai.GenerativeModel('gemini-2.5-flash')
+    except Exception as e:
+        print(f"Error initializing Gemini client: {e}")
         return None
 
 def parse_ocr_layout(text: str):
@@ -93,9 +106,11 @@ def _fallback_extract_entities(text: str):
     return entities
 
 def extract_entities(text: str):
-    client = get_groq_client()
-    if not client:
-        print("Groq API Key not found, falling back to regex entity extraction")
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not gemini_model and not groq_client:
+        print("Neither Gemini nor Groq API Key found, falling back to regex entity extraction")
         return _fallback_extract_entities(text)
     
     truncated_text = text[:10000] if len(text) > 10000 else text
@@ -124,13 +139,39 @@ def extract_entities(text: str):
         Text:
         {truncated_text}
         """
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        content = response.choices[0].message.content
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                content = response.choices[0].message.content
+            except Exception as e:
+                print(f"Groq extract_entities failed: {e}. Trying Gemini fallback...")
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.1
+                        }
+                    )
+                    content = response.text.strip()
+                else:
+                    raise e
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.1
+                }
+            )
+            content = response.text.strip()
+            
         data = json.loads(content)
         # Parse the JSON response
         if isinstance(data, dict) and "entities" in data:
@@ -154,7 +195,7 @@ def extract_entities(text: str):
                 e["endChar"] = 0
         return entities
     except Exception as e:
-        print(f"Error in Groq extract_entities: {e}. Falling back to regex.")
+        print(f"Error in extract_entities: {e}. Falling back to regex.")
         return _fallback_extract_entities(text)
 
 def _fallback_analyze_resume(text: str):
@@ -211,9 +252,11 @@ def _fallback_analyze_resume(text: str):
     }
 
 def analyze_resume_profile(text: str):
-    client = get_groq_client()
-    if not client:
-        print("Groq API Key not found, falling back to heuristic resume analysis")
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not gemini_model and not groq_client:
+        print("Neither Gemini nor Groq API Key found, falling back to heuristic resume analysis")
         return _fallback_analyze_resume(text)
     
     truncated_text = text[:10000] if len(text) > 10000 else text
@@ -244,13 +287,39 @@ def analyze_resume_profile(text: str):
         Resume Text:
         {truncated_text}
         """
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            response_format={"type": "json_object"}
-        )
-        content = response.choices[0].message.content
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    response_format={"type": "json_object"}
+                )
+                content = response.choices[0].message.content
+            except Exception as e:
+                print(f"Groq analyze_resume_profile failed: {e}. Trying Gemini fallback...")
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.2
+                        }
+                    )
+                    content = response.text.strip()
+                else:
+                    raise e
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.2
+                }
+            )
+            content = response.text.strip()
+            
         data = json.loads(content)
         
         # Validate schema keys
@@ -263,7 +332,7 @@ def analyze_resume_profile(text: str):
             "suggestions": data.get("suggestions", [])
         }
     except Exception as e:
-        print(f"Error in Groq analyze_resume_profile: {e}. Falling back.")
+        print(f"Error in analyze_resume_profile: {e}. Falling back.")
         return _fallback_analyze_resume(text)
 
 def _fallback_answer_question(text: str, question: str) -> str:
@@ -363,9 +432,11 @@ def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) ->
     return context
 
 def answer_question(text: str, question: str) -> str:
-    client = get_groq_client()
-    if not client:
-        print("Groq API Key not found, falling back to local Q&A engine")
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not gemini_model and not groq_client:
+        print("Neither Gemini nor Groq API Key found, falling back to local Q&A engine")
         return _fallback_answer_question(text, question)
         
     try:
@@ -382,28 +453,68 @@ def answer_question(text: str, question: str) -> str:
         6. Speak in a natural, helpful, and direct tone. Keep core facts grounded in the provided document details, but bring in external insights/rankings/standard evaluations for colleges/companies when requested.
         """
         
-        filtered_context = filter_relevant_context(text, question, max_tokens=1500)
-        
-        prompt = f"""
-        Document Context (Filtered Snippets):
-        ---
-        {filtered_context}
-        ---
-        
-        Question: {question}
-        
-        Answer:
-        """
-        
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": system_instructions},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-        return response.choices[0].message.content.strip()
+        if groq_client:
+            try:
+                filtered_context = filter_relevant_context(text, question, max_tokens=1500)
+                prompt = f"""
+                Document Context (Filtered Snippets):
+                ---
+                {filtered_context}
+                ---
+                
+                Question: {question}
+                
+                Answer:
+                """
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "system", "content": system_instructions},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.3
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"Groq Q&A failed: {e}. Trying Gemini fallback...")
+                if gemini_model:
+                    gemini_context = text[:100000] if len(text) > 100000 else text
+                    prompt = f"""
+                    System Instructions:
+                    {system_instructions}
+                    
+                    Document Context:
+                    ---
+                    {gemini_context}
+                    ---
+                    
+                    Question: {question}
+                    """
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={"temperature": 0.3}
+                    )
+                    return response.text.strip()
+                else:
+                    raise e
+        elif gemini_model:
+            gemini_context = text[:100000] if len(text) > 100000 else text
+            prompt = f"""
+            System Instructions:
+            {system_instructions}
+            
+            Document Context:
+            ---
+            {gemini_context}
+            ---
+            
+            Question: {question}
+            """
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.3}
+            )
+            return response.text.strip()
     except Exception as e:
-        print(f"Error communicating with Groq: {e}. Falling back to local Q&A engine.")
+        print(f"Error communicating with LLM provider: {e}. Falling back to local Q&A engine.")
         return _fallback_answer_question(text, question)
