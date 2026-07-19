@@ -710,3 +710,104 @@ def answer_question(text: str, question: str, doc_id: Any = None) -> tuple:
     except Exception as e:
         print(f"Error communicating with LLM provider: {e}. Falling back to local Q&A engine.")
         return _fallback_answer_question(text, question, doc_id)
+
+def translate_layout_blocks(blocks: list, target_lang: str) -> list:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not blocks:
+        return []
+        
+    if not gemini_model and not groq_client:
+        return blocks
+        
+    try:
+        texts = [b.get("text", "") for b in blocks]
+        
+        prompt = f"""
+        You are a professional layout-preserving translator. Translate the following list of text segments to {target_lang}.
+        Ensure the exact list length is preserved and translated accurately, keeping formatting and tone intact.
+        
+        Return ONLY a JSON list of strings representing the translated segments matching this exact format:
+        [
+          "translated_segment_1",
+          "translated_segment_2",
+          ...
+        ]
+        
+        Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
+        
+        Segments:
+        {json.dumps(texts)}
+        """
+        
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                content = response.choices[0].message.content
+            except Exception:
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.1
+                        }
+                    )
+                    content = response.text.strip()
+                else:
+                    raise
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.1
+                }
+            )
+            content = response.text.strip()
+            
+        translated_texts = json.loads(content)
+        if isinstance(translated_texts, dict):
+            translated_texts = list(translated_texts.values())[0]
+            
+        translated_blocks = []
+        for idx, block in enumerate(blocks):
+            translated_text = translated_texts[idx] if idx < len(translated_texts) else block.get("text", "")
+            translated_blocks.append({
+                **block,
+                "text": translated_text
+            })
+        return translated_blocks
+    except Exception as e:
+        print(f"Error in translate_layout_blocks: {e}")
+        return blocks
+
+def compare_documents(docs: list) -> list:
+    comparison_results = []
+    for d in docs:
+        resume_analysis = d.get("resumeAnalysis") or {}
+        classification = d.get("classification") or {}
+        
+        metrics = {
+            "id": d.get("id"),
+            "name": d.get("name"),
+            "type": d.get("type"),
+            "size": d.get("size"),
+            "category": classification.get("label", "Unknown"),
+            "confidence": classification.get("confidence", 0.0),
+            "atsScore": resume_analysis.get("atsScore", 0),
+            "skillsCount": len(resume_analysis.get("skills") or []),
+            "educationCount": len(resume_analysis.get("education") or []),
+            "experienceCount": len(resume_analysis.get("experience") or []),
+            "suggestionsCount": len(resume_analysis.get("suggestions") or []),
+            "entitiesCount": len(d.get("entities") or []),
+        }
+        comparison_results.append(metrics)
+    return comparison_results

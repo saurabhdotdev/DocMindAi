@@ -57,6 +57,16 @@ export const DocumentDetail: React.FC = () => {
   // OCR Bounding Box states
   const [hoveredBlockIdx, setHoveredBlockIdx] = useState<number | null>(null);
 
+  // Inline Canvas Editor states
+  const [isEditingBlock, setIsEditingBlock] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [isOcrSaving, setIsOcrSaving] = useState(false);
+
+  // Translation states
+  const [targetLang, setTargetLang] = useState('');
+  const [translatedBlocks, setTranslatedBlocks] = useState<any[] | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+
   // Fetch full document details (includes OCR + entities)
   const { data: doc, isLoading, refetch } = useQuery({
     queryKey: ['document', id],
@@ -74,6 +84,54 @@ export const DocumentDetail: React.FC = () => {
   // Download handler
   const handleDownload = () => {
     if (doc?.downloadUrl) window.open(doc.downloadUrl, '_blank');
+  };
+
+  // Translate document layout blocks
+  const handleTranslate = async (lang: string) => {
+    setTargetLang(lang);
+    if (!lang) {
+      setTranslatedBlocks(null);
+      return;
+    }
+    setIsTranslating(true);
+    try {
+      const res = await api.post(`/v1/documents/${id}/translate`, {
+        targetLang: lang,
+      });
+      if (res.data.success) {
+        setTranslatedBlocks(res.data.data);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Translation failed.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  // Save edited OCR block text
+  const handleSaveBlockText = async (idx: number) => {
+    if (!doc.ocrResult?.layout?.blocks) return;
+    setIsOcrSaving(true);
+    try {
+      const updatedBlocks = [...doc.ocrResult.layout.blocks];
+      updatedBlocks[idx] = {
+        ...updatedBlocks[idx],
+        text: editingText,
+      };
+
+      const res = await api.put(`/v1/documents/${id}/ocr`, {
+        blocks: updatedBlocks,
+      });
+
+      if (res.data.success) {
+        setIsEditingBlock(null);
+        refetch(); // Reload document data
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Saving failed.');
+    } finally {
+      setIsOcrSaving(false);
+    }
   };
 
   // Real AI chat querying the backend /v1/documents/:id/chat
@@ -122,6 +180,9 @@ export const DocumentDetail: React.FC = () => {
     acc[e.category].push(e);
     return acc;
   }, {});
+
+  // Determine active layout blocks to draw on visualizer canvas (original vs translated)
+  const activeLayoutBlocks = translatedBlocks || doc.ocrResult?.layout?.blocks || [];
 
   return (
     <MainLayout>
@@ -340,12 +401,30 @@ export const DocumentDetail: React.FC = () => {
                 {/* Left Visual Visualizer */}
                 <div className="flex-1 flex flex-col">
                   <div className="flex justify-between items-center mb-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">Interactive Layout Bounding Box</span>
-                    <span className="text-[9px] text-brand-textMuted">Hover boxes to inspect structure</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">Interactive Layout Bounding Box</span>
+                      {/* Language translation selector */}
+                      <select
+                        value={targetLang}
+                        onChange={(e) => handleTranslate(e.target.value)}
+                        disabled={isTranslating}
+                        className="glass-input py-1 px-2 text-[10px] bg-brand-dark max-w-[150px] shrink-0"
+                      >
+                        <option value="">Original Language</option>
+                        <option value="Spanish">Spanish 🇪🇸</option>
+                        <option value="French">French 🇫🇷</option>
+                        <option value="German">German 🇩🇪</option>
+                        <option value="Hindi">Hindi 🇮🇳</option>
+                        <option value="Japanese">Japanese 🇯🇵</option>
+                      </select>
+                      {isTranslating && <RefreshCw className="w-3 h-3 text-brand-primary animate-spin" />}
+                    </div>
+                    <span className="text-[9px] text-brand-textMuted">Hover blocks to inspect structure</span>
                   </div>
-                  {doc.ocrResult?.layout?.blocks && doc.ocrResult.layout.blocks.length > 0 ? (
+                  
+                  {activeLayoutBlocks.length > 0 ? (
                     <div className="relative w-[340px] md:w-[480px] h-[550px] bg-brand-dark/40 border border-white/5 rounded-xl overflow-hidden mx-auto shadow-inner bg-gradient-to-b from-brand-dark/20 to-brand-dark/50">
-                      {doc.ocrResult.layout.blocks.map((block: any, idx: number) => {
+                      {activeLayoutBlocks.map((block: any, idx: number) => {
                         const [rawX, rawY, rawW, rawH] = block.boundingBox || [50, 50 + idx * 30, 300, 20];
                         // Scale coordinates to fit inside visual canvas box
                         const scaleX = 480 / 600;
@@ -390,24 +469,72 @@ export const DocumentDetail: React.FC = () => {
                   </div>
                   {doc.ocrResult?.text ? (
                     <div className="flex flex-col h-[550px]">
-                      {/* hovered block snippet preview */}
-                      {hoveredBlockIdx !== null && doc.ocrResult.layout?.blocks?.[hoveredBlockIdx] ? (
+                      
+                      {/* hovered block snippet preview or inline layout editor */}
+                      {hoveredBlockIdx !== null && activeLayoutBlocks[hoveredBlockIdx] ? (
                         <div className="bg-brand-primary/10 border border-brand-primary/30 rounded-xl p-4 mb-3 animate-in fade-in duration-200">
                           <span className="text-[9px] font-bold text-brand-primary uppercase tracking-wider block mb-1">
-                            Block #{hoveredBlockIdx + 1} ({doc.ocrResult.layout.blocks[hoveredBlockIdx].type || 'paragraph'})
+                            Block #{hoveredBlockIdx + 1} ({activeLayoutBlocks[hoveredBlockIdx].type || 'paragraph'})
                           </span>
-                          <p className="text-xs text-white leading-relaxed italic">
-                            "{doc.ocrResult.layout.blocks[hoveredBlockIdx].text}"
-                          </p>
+                          
+                          {isEditingBlock === hoveredBlockIdx ? (
+                            <div className="space-y-2 mt-2">
+                              <textarea
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                className="glass-input w-full text-xs p-2 h-20 bg-brand-dark"
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditingBlock(null)}
+                                  className="px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 text-brand-textMuted rounded"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveBlockText(hoveredBlockIdx)}
+                                  disabled={isOcrSaving}
+                                  className="px-2.5 py-1 text-[10px] bg-brand-primary text-white rounded font-bold"
+                                >
+                                  {isOcrSaving ? 'Saving...' : 'Save Changes'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between items-start gap-2.5">
+                              <p className="text-xs text-white leading-relaxed italic">
+                                "{activeLayoutBlocks[hoveredBlockIdx].text}"
+                              </p>
+                              {/* Enable editing only in original text mode */}
+                              {!translatedBlocks && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsEditingBlock(hoveredBlockIdx);
+                                    setEditingText(activeLayoutBlocks[hoveredBlockIdx].text);
+                                  }}
+                                  className="px-2 py-1 bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30 text-[9px] font-bold rounded transition-colors shrink-0"
+                                >
+                                  Edit Block
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="bg-white/[0.01] border border-white/5 rounded-xl p-4 mb-3 text-xs text-brand-textMuted leading-normal">
                           💡 Hover over layout bounding boxes on the left page visualizer to read specific sections.
+                          {!translatedBlocks && " Double click or click 'Edit' to change block text."}
                         </div>
                       )}
                       
                       <pre className="flex-1 whitespace-pre-wrap text-xs text-brand-text bg-brand-dark/40 rounded-xl p-4 border border-white/5 overflow-y-auto leading-relaxed font-mono">
-                        {doc.ocrResult.text}
+                        {translatedBlocks 
+                          ? translatedBlocks.map(b => b.text).join('\n')
+                          : doc.ocrResult.text
+                        }
                       </pre>
                     </div>
                   ) : (

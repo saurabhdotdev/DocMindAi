@@ -165,4 +165,78 @@ export class DocumentController {
       return next(error);
     }
   }
+
+  // Cross-document Comparatives
+  static async compare(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { docIds } = req.body;
+
+      if (!docIds || !Array.isArray(docIds) || docIds.length === 0) {
+        return next(new AppError('docIds array is required', 400));
+      }
+
+      const result = await DocumentService.compareDocuments(req.user.id, docIds);
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Update OCR layout blocks text
+  static async updateOcr(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { blocks } = req.body;
+
+      if (!blocks || !Array.isArray(blocks)) {
+        return next(new AppError('blocks array is required', 400));
+      }
+
+      await DocumentService.updateOcrLayout(req.user.id, id, blocks);
+
+      return res.status(200).json({
+        success: true,
+        message: 'OCR layout updated and re-indexed successfully',
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Translate document layout blocks
+  static async translate(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { targetLang } = req.body;
+
+      if (!targetLang) {
+        return next(new AppError('targetLang is required', 400));
+      }
+
+      const result = await DocumentService.translateDocumentLayout(req.user.id, id, targetLang);
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

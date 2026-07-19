@@ -328,4 +328,121 @@ export class DocumentService {
       throw new AppError(`AI Q&A Error: ${error.message}`, 500);
     }
   }
+
+  // Generate comparison matrix of documents
+  static async compareDocuments(userId: string, docIds: string[]) {
+    const documents = await prisma.document.findMany({
+      where: {
+        id: { in: docIds },
+        userId,
+      },
+      include: {
+        classification: true,
+        resumeAnalysis: true,
+        entities: true,
+      },
+    });
+
+    if (documents.length === 0) {
+      throw new AppError('No matching documents found', 404);
+    }
+
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/compare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ docs: documents }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /compare returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      return body.comparison || [];
+    } catch (error: any) {
+      throw new AppError(`AI Comparison Error: ${error.message}`, 500);
+    }
+  }
+
+  // Update layout block text and trigger indexing update
+  static async updateOcrLayout(userId: string, documentId: string, blocks: any[]) {
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, userId },
+      include: { ocrResult: true },
+    });
+
+    if (!document) {
+      throw new AppError('Document not found or access denied', 404);
+    }
+
+    // Build combined full text
+    const combinedText = blocks.map(b => b.text).join('\n');
+
+    // Update layout data & text in DB
+    if (document.ocrResult) {
+      await prisma.oCRResult.update({
+        where: { documentId },
+        data: {
+          text: combinedText,
+          layout: { ...document.ocrResult.layout as any, blocks },
+        },
+      });
+    } else {
+      await prisma.oCRResult.create({
+        data: {
+          documentId,
+          text: combinedText,
+          layout: { pagesCount: 1, blocks },
+        },
+      });
+    }
+
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    // Update Qdrant vector database asynchronously
+    fetch(`${AI_SERVICE_URL}/v1/index`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: documentId, docName: document.name, text: combinedText }),
+    }).catch(err => {
+      console.error(`Qdrant re-indexing error: ${err.message}`);
+    });
+  }
+
+  // Translate document layout text blocks
+  static async translateDocumentLayout(userId: string, documentId: string, targetLang: string) {
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, userId },
+      include: { ocrResult: true },
+    });
+
+    if (!document || !document.ocrResult) {
+      throw new AppError('Document layout text not found or access denied', 404);
+    }
+
+    const layout = document.ocrResult.layout as any;
+    const blocks = layout.blocks || [];
+
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/translate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blocks, targetLang }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /translate returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      return body.blocks || [];
+    } catch (error: any) {
+      throw new AppError(`AI Translation Error: ${error.message}`, 500);
+    }
+  }
 }

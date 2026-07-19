@@ -32,6 +32,10 @@ export const AskAi: React.FC = () => {
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [previewPage, setPreviewPage] = useState<number>(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
+
+  // Comparisons state
+  const [comparisons, setComparisons] = useState<any[] | null>(null);
+  const [isCompareLoading, setIsCompareLoading] = useState(false);
   
   // Upload states
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -192,6 +196,24 @@ export const AskAi: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setUploadFile(e.target.files[0]);
+    }
+  };
+
+  // Compare selected documents side-by-side
+  const handleCompareDocuments = async () => {
+    if (selectedDocIds.length === 0) return;
+    setIsCompareLoading(true);
+    try {
+      const res = await api.post('/v1/documents/compare', {
+        docIds: selectedDocIds,
+      });
+      if (res.data.success) {
+        setComparisons(res.data.data);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Comparison failed.');
+    } finally {
+      setIsCompareLoading(false);
     }
   };
 
@@ -456,11 +478,11 @@ export const AskAi: React.FC = () => {
                 
                 {/* Active Documents Header */}
                 <div className="px-6 py-4 border-b border-white/5 bg-white/[0.01] flex justify-between items-center shrink-0">
-                  <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="flex items-center gap-3 overflow-hidden flex-1">
                     <div className="w-8 h-8 rounded-lg bg-brand-primary/10 border border-brand-primary/20 flex items-center justify-center shrink-0">
                       <FileCheck className="w-4 h-4 text-brand-primary" />
                     </div>
-                    <div className="overflow-hidden">
+                    <div className="overflow-hidden flex-1 pr-4">
                       <span className="text-xs font-bold text-white block truncate">
                         {selectedDocIds.length === 1 
                           ? documents.find((d: any) => d.id === selectedDocIds[0])?.name || 'Document'
@@ -474,6 +496,22 @@ export const AskAi: React.FC = () => {
                         }
                       </span>
                     </div>
+                    
+                    {/* Comparative matrices action button */}
+                    {selectedDocIds.length > 1 && (
+                      <button
+                        onClick={handleCompareDocuments}
+                        disabled={isCompareLoading}
+                        className="glass-button-primary px-3 py-1.5 text-xs flex items-center gap-1.5 shrink-0"
+                      >
+                        {isCompareLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5" />
+                        )}
+                        <span>Compare Metrics</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -620,6 +658,117 @@ export const AskAi: React.FC = () => {
         </section>
 
       </div>
+
+      {/* Comparisons Modal Overlay */}
+      {comparisons && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-200">
+          <div className="bg-brand-dark/95 border border-white/10 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-brand-primary" />
+                <h2 className="text-sm font-extrabold text-white">Cross-Document Comparison Matrix</h2>
+              </div>
+              <button
+                onClick={() => setComparisons(null)}
+                className="text-xs font-bold text-brand-textMuted hover:text-white px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                Close [X]
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              
+              {/* Comparison Table */}
+              <div className="border border-white/5 rounded-xl overflow-hidden bg-brand-dark/20">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-white/[0.02] border-b border-white/5 text-brand-textMuted font-bold uppercase tracking-wider text-[9px]">
+                      <th className="p-3">File Name</th>
+                      <th className="p-3">Category</th>
+                      <th className="p-3">File Size</th>
+                      <th className="p-3 text-center">ATS Score</th>
+                      <th className="p-3 text-center">Skills</th>
+                      <th className="p-3 text-center">Experience</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-brand-text">
+                    {comparisons.map((c: any) => (
+                      <tr key={c.id} className="hover:bg-white/[0.01] transition-colors">
+                        <td className="p-3 font-semibold text-white truncate max-w-[200px]" title={c.name}>{c.name}</td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded bg-brand-primary/10 border border-brand-primary/20 text-brand-primary text-[10px]">
+                            {c.category}
+                          </span>
+                        </td>
+                        <td className="p-3">{(c.size / 1024).toFixed(1)} KB</td>
+                        <td className="p-3 text-center font-bold text-brand-success">{c.atsScore > 0 ? `${c.atsScore}%` : 'N/A'}</td>
+                        <td className="p-3 text-center">{c.skillsCount}</td>
+                        <td className="p-3 text-center">{c.experienceCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Comparison Bar Charts */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* ATS Scores Bar Chart */}
+                <div className="bg-brand-dark/40 border border-white/5 rounded-xl p-4">
+                  <span className="text-[10px] font-bold text-brand-textMuted uppercase tracking-wider block mb-3">ATS Compatibility Comparison</span>
+                  <div className="space-y-3">
+                    {comparisons.map((c: any) => (
+                      <div key={c.id} className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-white truncate max-w-[70%]" title={c.name}>{c.name}</span>
+                          <span className="text-brand-primary font-bold">{c.atsScore > 0 ? `${c.atsScore}%` : 'N/A'}</span>
+                        </div>
+                        {c.atsScore > 0 && (
+                          <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                            <div
+                              className="bg-brand-primary h-full rounded-full transition-all duration-500"
+                              style={{ width: `${c.atsScore}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Skills Count Bar Chart */}
+                <div className="bg-brand-dark/40 border border-white/5 rounded-xl p-4">
+                  <span className="text-[10px] font-bold text-brand-textMuted uppercase tracking-wider block mb-3">Detected Skills Volume</span>
+                  <div className="space-y-3">
+                    {comparisons.map((c: any) => (
+                      <div key={c.id} className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-white truncate max-w-[70%]" title={c.name}>{c.name}</span>
+                          <span className="text-brand-secondary font-bold">{c.skillsCount} skills</span>
+                        </div>
+                        {c.skillsCount > 0 && (
+                          <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                            <div
+                              className="bg-brand-secondary h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, (c.skillsCount / 20) * 100)}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 };

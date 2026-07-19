@@ -9,9 +9,12 @@ const router = Router();
 router.post('/upload', authenticateJWT, uploadMiddleware, DocumentController.upload);
 router.get('/', authenticateJWT, DocumentController.list);
 router.post('/chat', authenticateJWT, DocumentController.multiChat);
+router.post('/compare', authenticateJWT, DocumentController.compare);
 router.get('/:id', authenticateJWT, DocumentController.getById);
 router.post('/:id/convert', authenticateJWT, DocumentController.convert);
 router.post('/:id/chat', authenticateJWT, DocumentController.chat);
+router.put('/:id/ocr', authenticateJWT, DocumentController.updateOcr);
+router.post('/:id/translate', authenticateJWT, DocumentController.translate);
 router.delete('/:id', authenticateJWT, DocumentController.delete);
 
 export default router;

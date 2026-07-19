@@ -47,6 +47,13 @@ class ChatRequest(BaseModel):
     question: str
     docId: Any = None
 
+class TranslateRequest(BaseModel):
+    blocks: list
+    targetLang: str
+
+class CompareRequest(BaseModel):
+    docs: list
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "docmind-ai-service"}
@@ -115,6 +122,28 @@ def index_document(payload: IndexRequest):
         return {
             "success": success,
             "message": "Document indexed successfully" if success else "Indexing skipped or failed"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/translate")
+def translate_layout(payload: TranslateRequest):
+    try:
+        result = ai_engine.translate_layout_blocks(payload.blocks, payload.targetLang)
+        return {
+            "success": True,
+            "blocks": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/compare")
+def compare_docs_metrics(payload: CompareRequest):
+    try:
+        result = ai_engine.compare_documents(payload.docs)
+        return {
+            "success": True,
+            "comparison": result
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
