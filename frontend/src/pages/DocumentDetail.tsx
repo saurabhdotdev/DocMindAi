@@ -14,7 +14,7 @@ type Tab = 'overview' | 'ocr' | 'entities';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <FileText className="w-4 h-4" /> },
-  { id: 'ocr', label: 'Extracted Text', icon: <Brain className="w-4 h-4" /> },
+  { id: 'ocr', label: 'Extracted Text & Layout', icon: <Brain className="w-4 h-4" /> },
   { id: 'entities', label: 'Entities', icon: <Search className="w-4 h-4" /> },
 ];
 
@@ -53,6 +53,9 @@ export const DocumentDetail: React.FC = () => {
     { role: 'assistant', content: "👋 Hi! Ask me anything about this document — I'll extract information, summarise sections, or answer specific questions." }
   ]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  
+  // OCR Bounding Box states
+  const [hoveredBlockIdx, setHoveredBlockIdx] = useState<number | null>(null);
 
   // Fetch full document details (includes OCR + entities)
   const { data: doc, isLoading, refetch } = useQuery({
@@ -200,82 +203,221 @@ export const DocumentDetail: React.FC = () => {
             {/* ── OVERVIEW TAB ── */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
-                {/* Classification card */}
-                {doc.classification ? (
-                  <div className="glass-panel rounded-2xl p-6 border border-brand-primary/20">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Sparkles className="w-5 h-5 text-brand-primary" />
-                      <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">AI Classification</h2>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <span className="text-2xl font-extrabold text-white">{doc.classification.label}</span>
-                        <p className="text-xs text-brand-textMuted mt-1">Identified document category</p>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-3xl font-black text-brand-primary">{Math.round(doc.classification.confidence * 100)}%</div>
-                        <p className="text-xs text-brand-textMuted">confidence</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 bg-brand-dark/40 rounded-full h-2">
-                      <div
-                        className="bg-gradient-to-r from-brand-primary to-brand-secondary h-2 rounded-full transition-all"
-                        style={{ width: `${Math.round(doc.classification.confidence * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ) : isProcessing ? (
-                  <div className="glass-panel rounded-2xl p-6 border border-white/5 flex items-center gap-3">
-                    <RefreshCw className="w-5 h-5 text-brand-warning animate-spin" />
-                    <span className="text-sm text-brand-textMuted">AI classification in progress...</span>
-                  </div>
-                ) : null}
-
-                {/* Entities summary */}
-                {entities.length > 0 && (
-                  <div className="glass-panel rounded-2xl p-6 border border-white/5">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Tag className="w-5 h-5 text-brand-primary" />
-                      <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">Extracted Metadata</h2>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      {Object.entries(entityGroups).slice(0, 4).map(([category, ents]) => (
-                        <div key={category} className="bg-brand-dark/30 border border-white/5 rounded-xl p-4">
-                          <span className="text-[10px] uppercase tracking-wider text-brand-textMuted block mb-1">{category}</span>
-                          <span className="text-sm font-semibold text-white truncate block">
-                            {(ents as any[])[0]?.value || 'N/A'}
-                          </span>
+                {/* Resume ATS analysis dashboard */}
+                {doc.resumeAnalysis ? (
+                  <div className="space-y-6">
+                    {/* Score and Suggestions Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="glass-panel rounded-2xl p-6 border border-brand-primary/20 flex flex-col items-center justify-center text-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted mb-3">ATS Compatibility</span>
+                        <div className="relative flex items-center justify-center">
+                          <div className="w-24 h-24 rounded-full border-4 border-brand-primary/10 flex items-center justify-center text-2xl font-black text-white relative shadow-lg">
+                            {doc.resumeAnalysis.atsScore}%
+                            <div className="absolute inset-0 rounded-full border-4 border-brand-primary border-t-transparent animate-spin-slow pointer-events-none" />
+                          </div>
                         </div>
-                      ))}
+                        <span className="text-[10px] text-brand-success font-semibold mt-3">Profile Match Score</span>
+                      </div>
+
+                      <div className="md:col-span-2 glass-panel rounded-2xl p-6 border border-white/5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">ATS Optimization Suggestions</span>
+                        <ul className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                          {Array.isArray(doc.resumeAnalysis.suggestions) && doc.resumeAnalysis.suggestions.map((sug: string, idx: number) => (
+                            <li key={idx} className="flex gap-2 text-xs text-brand-text items-start">
+                              <span className="text-brand-primary mt-0.5">•</span>
+                              <span>{sug}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* Technical Skills */}
+                    <div className="glass-panel rounded-2xl p-6 border border-white/5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">Extracted Skills Inventory</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Array.isArray(doc.resumeAnalysis.skills) && doc.resumeAnalysis.skills.map((skill: string, idx: number) => (
+                          <span key={idx} className="px-2.5 py-1 bg-brand-primary/10 border border-brand-primary/20 text-brand-primary rounded-lg text-xs font-semibold">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Timeline & Details */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Education Timeline */}
+                      <div className="glass-panel rounded-2xl p-6 border border-white/5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">Education History</span>
+                        <div className="space-y-3">
+                          {Array.isArray(doc.resumeAnalysis.education) && doc.resumeAnalysis.education.map((edu: any, idx: number) => (
+                            <div key={idx} className="border-l-2 border-brand-primary/30 pl-3.5 py-1">
+                              <span className="text-xs font-bold text-white block">{edu.degree || 'Degree'}</span>
+                              <span className="text-[10px] text-brand-textMuted block mt-0.5">{edu.institution || 'Institution'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Work Experience */}
+                      <div className="glass-panel rounded-2xl p-6 border border-white/5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">Work Experience Timeline</span>
+                        <div className="space-y-3.5">
+                          {Array.isArray(doc.resumeAnalysis.experience) && doc.resumeAnalysis.experience.map((exp: any, idx: number) => (
+                            <div key={idx} className="border-l-2 border-brand-secondary/30 pl-3.5 py-1">
+                              <div className="flex justify-between items-start gap-2">
+                                <span className="text-xs font-bold text-white block">{exp.role || 'Role'}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-brand-textMuted shrink-0 font-medium">{exp.duration}</span>
+                              </div>
+                              <span className="text-[10px] text-brand-textMuted block mt-0.5">{exp.company || 'Company'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
+                ) : (
+                  <>
+                    {/* Default Classification Overview */}
+                    {doc.classification ? (
+                      <div className="glass-panel rounded-2xl p-6 border border-brand-primary/20">
+                        <div className="flex items-center gap-3 mb-4">
+                          <Sparkles className="w-5 h-5 text-brand-primary" />
+                          <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">AI Classification</h2>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1">
+                            <span className="text-2xl font-extrabold text-white">{doc.classification.label}</span>
+                            <p className="text-xs text-brand-textMuted mt-1">Identified document category</p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-3xl font-black text-brand-primary">{Math.round(doc.classification.confidence * 100)}%</div>
+                            <p className="text-xs text-brand-textMuted">confidence</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 bg-brand-dark/40 rounded-full h-2">
+                          <div
+                            className="bg-gradient-to-r from-brand-primary to-brand-secondary h-2 rounded-full transition-all"
+                            style={{ width: `${Math.round(doc.classification.confidence * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : isProcessing ? (
+                      <div className="glass-panel rounded-2xl p-6 border border-white/5 flex items-center gap-3">
+                        <RefreshCw className="w-5 h-5 text-brand-warning animate-spin" />
+                        <span className="text-sm text-brand-textMuted">AI classification in progress...</span>
+                      </div>
+                    ) : null}
+
+                    {/* Entities Summary */}
+                    {entities.length > 0 && (
+                      <div className="glass-panel rounded-2xl p-6 border border-white/5">
+                        <div className="flex items-center gap-3 mb-4">
+                          <Tag className="w-5 h-5 text-brand-primary" />
+                          <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">Extracted Metadata</h2>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          {Object.entries(entityGroups).slice(0, 4).map(([category, ents]) => (
+                            <div key={category} className="bg-brand-dark/30 border border-white/5 rounded-xl p-4">
+                              <span className="text-[10px] uppercase tracking-wider text-brand-textMuted block mb-1">{category}</span>
+                              <span className="text-sm font-semibold text-white truncate block">
+                                {(ents as any[])[0]?.value || 'N/A'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
-            {/* ── OCR TEXT TAB ── */}
+            {/* ── OCR TEXT & LAYOUT TAB ── */}
             {activeTab === 'ocr' && (
-              <div className="glass-panel rounded-2xl p-6 border border-white/5">
-                <div className="flex items-center gap-3 mb-4">
-                  <Brain className="w-5 h-5 text-brand-primary" />
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">Extracted Text</h2>
+              <div className="glass-panel rounded-2xl p-6 border border-white/5 flex flex-col lg:flex-row gap-6">
+                
+                {/* Left Visual Visualizer */}
+                <div className="flex-1 flex flex-col">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">Interactive Layout Bounding Box</span>
+                    <span className="text-[9px] text-brand-textMuted">Hover boxes to inspect structure</span>
+                  </div>
+                  {doc.ocrResult?.layout?.blocks && doc.ocrResult.layout.blocks.length > 0 ? (
+                    <div className="relative w-[340px] md:w-[480px] h-[550px] bg-brand-dark/40 border border-white/5 rounded-xl overflow-hidden mx-auto shadow-inner bg-gradient-to-b from-brand-dark/20 to-brand-dark/50">
+                      {doc.ocrResult.layout.blocks.map((block: any, idx: number) => {
+                        const [rawX, rawY, rawW, rawH] = block.boundingBox || [50, 50 + idx * 30, 300, 20];
+                        // Scale coordinates to fit inside visual canvas box
+                        const scaleX = 480 / 600;
+                        const scaleY = 550 / 800;
+                        const x = Math.round(rawX * scaleX);
+                        const y = Math.round(rawY * scaleY);
+                        const w = Math.round(rawW * scaleX);
+                        const h = Math.round(rawH * scaleY);
+
+                        return (
+                          <div
+                            key={idx}
+                            onMouseEnter={() => setHoveredBlockIdx(idx)}
+                            onMouseLeave={() => setHoveredBlockIdx(null)}
+                            style={{
+                              position: 'absolute',
+                              left: `${x}px`,
+                              top: `${y}px`,
+                              width: `${Math.max(20, w)}px`,
+                              height: `${Math.max(10, h)}px`,
+                            }}
+                            className={`border rounded transition-all cursor-pointer ${
+                              hoveredBlockIdx === idx
+                                ? 'bg-brand-primary/25 border-brand-primary ring-1 ring-brand-primary shadow-md z-10 scale-[1.01]'
+                                : 'bg-brand-primary/5 border-brand-primary/10 hover:border-brand-primary/40'
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-[550px] border border-dashed border-white/5 rounded-xl text-brand-textMuted text-xs">
+                      No layout metadata blocks detected.
+                    </div>
+                  )}
                 </div>
-                {doc.ocrResult?.text ? (
-                  <pre className="whitespace-pre-wrap text-xs text-brand-text bg-brand-dark/40 rounded-xl p-4 border border-white/5 max-h-[500px] overflow-y-auto leading-relaxed font-mono">
-                    {doc.ocrResult.text}
-                  </pre>
-                ) : isProcessing ? (
-                  <div className="flex items-center gap-3 py-12 justify-center">
-                    <RefreshCw className="w-5 h-5 text-brand-warning animate-spin" />
-                    <span className="text-sm text-brand-textMuted">Extracting text from document...</span>
+
+                {/* Right Scrollable Text */}
+                <div className="flex-1 flex flex-col">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">Extracted Content details</span>
                   </div>
-                ) : (
-                  <div className="flex flex-col items-center py-16 text-center">
-                    <Brain className="w-10 h-10 text-brand-border mb-3" />
-                    <p className="text-sm text-brand-textMuted">No text extracted yet.</p>
-                    <p className="text-xs text-brand-textMuted mt-1">Text extraction runs automatically after upload.</p>
-                  </div>
-                )}
+                  {doc.ocrResult?.text ? (
+                    <div className="flex flex-col h-[550px]">
+                      {/* hovered block snippet preview */}
+                      {hoveredBlockIdx !== null && doc.ocrResult.layout?.blocks?.[hoveredBlockIdx] ? (
+                        <div className="bg-brand-primary/10 border border-brand-primary/30 rounded-xl p-4 mb-3 animate-in fade-in duration-200">
+                          <span className="text-[9px] font-bold text-brand-primary uppercase tracking-wider block mb-1">
+                            Block #{hoveredBlockIdx + 1} ({doc.ocrResult.layout.blocks[hoveredBlockIdx].type || 'paragraph'})
+                          </span>
+                          <p className="text-xs text-white leading-relaxed italic">
+                            "{doc.ocrResult.layout.blocks[hoveredBlockIdx].text}"
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-white/[0.01] border border-white/5 rounded-xl p-4 mb-3 text-xs text-brand-textMuted leading-normal">
+                          💡 Hover over layout bounding boxes on the left page visualizer to read specific sections.
+                        </div>
+                      )}
+                      
+                      <pre className="flex-1 whitespace-pre-wrap text-xs text-brand-text bg-brand-dark/40 rounded-xl p-4 border border-white/5 overflow-y-auto leading-relaxed font-mono">
+                        {doc.ocrResult.text}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-16 text-center h-[550px]">
+                      <Brain className="w-10 h-10 text-brand-border mb-3" />
+                      <p className="text-sm text-brand-textMuted">No text extracted yet.</p>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
 

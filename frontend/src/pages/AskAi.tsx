@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
 import {
   Sparkles, Bot, User, Send, RefreshCw, Upload,
-  FileText, Search, Plus, CheckCircle2, AlertCircle, FileCheck
+  FileText, Search, Plus, CheckCircle2, AlertCircle, FileCheck, Clock
 } from 'lucide-react';
 
 interface Source {
@@ -25,6 +25,9 @@ export const AskAi: React.FC = () => {
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Chat Session states
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
   // PDF Preview states
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [previewPage, setPreviewPage] = useState<number>(1);
@@ -62,6 +65,37 @@ export const AskAi: React.FC = () => {
     }
   });
 
+  // Fetch past chat sessions
+  const { data: chatSessions = [], isLoading: isSessionsLoading } = useQuery({
+    queryKey: ['chatSessions'],
+    queryFn: async () => {
+      const res = await api.get('/v1/chats');
+      return res.data.data;
+    }
+  });
+
+  // Fetch history of active chat session
+  const { data: activeSessionHistory } = useQuery({
+    queryKey: ['chatHistory', activeSessionId],
+    queryFn: async () => {
+      if (!activeSessionId) return null;
+      const res = await api.get(`/v1/chats/${activeSessionId}/messages`);
+      return res.data.data;
+    },
+    enabled: !!activeSessionId,
+  });
+
+  // Sync active session message history to message state
+  useEffect(() => {
+    if (activeSessionHistory) {
+      setChatMessages(activeSessionHistory.map((m: any) => ({
+        role: m.role.toLowerCase() as 'user' | 'assistant',
+        content: m.content,
+        sources: m.citations || [],
+      })));
+    }
+  }, [activeSessionHistory]);
+
   // Fetch details of previewed document
   const { data: previewDoc } = useQuery({
     queryKey: ['document', previewDocId],
@@ -71,6 +105,18 @@ export const AskAi: React.FC = () => {
       return res.data.data;
     },
     enabled: !!previewDocId,
+  });
+
+  // Create new persistent chat session mutation
+  const createSessionMutation = useMutation({
+    mutationFn: async (docId: string) => {
+      const res = await api.post('/v1/chats', { documentId: docId });
+      return res.data.data;
+    },
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+      setActiveSessionId(session.id);
+    }
   });
 
   // Document upload mutation
@@ -87,13 +133,11 @@ export const AskAi: React.FC = () => {
       setUploadSuccess(true);
       setUploadFile(null);
       queryClient.invalidateQueries({ queryKey: ['documents'] });
-      // Automatically select the newly uploaded document
+      // Automatically select and start session for the new document
       if (data?.data?.document?.id) {
         const newId = data.data.document.id;
-        setSelectedDocIds((prev) => [...prev.filter(id => id !== newId), newId]);
-        setChatMessages([
-          { role: 'assistant', content: `👋 Hi! I'm ready to answer any questions about "${data.data.document.name}". Please wait a moment while I extract the text...` }
-        ]);
+        setSelectedDocIds([newId]);
+        createSessionMutation.mutate(newId);
       }
       setTimeout(() => setUploadSuccess(false), 3000);
     },
@@ -105,7 +149,7 @@ export const AskAi: React.FC = () => {
   });
 
   // Handle document selection change
-  const handleSelectDoc = (id: string, name: string) => {
+  const handleSelectDoc = (id: string) => {
     setSelectedDocIds((prev) => {
       const exists = prev.includes(id);
       let next: string[];
@@ -115,17 +159,23 @@ export const AskAi: React.FC = () => {
         next = [...prev, id];
       }
 
-      // Initialize chat message with summary helper
-      if (next.length === 1 && !exists) {
-        setChatMessages([
-          { role: 'assistant', content: `👋 Hi! I can answer questions across your selected document: "${name}". You can select more documents in the sidebar to chat with multiple files at once!` }
-        ]);
-      } else if (next.length > 1) {
-        setChatMessages([
-          { role: 'assistant', content: `👋 Hi! I can answer questions across your ${next.length} selected documents simultaneously using vector search.` }
-        ]);
-      } else if (next.length === 0) {
-        setChatMessages([]);
+      // Sync persistent session logic when exactly one document is active
+      if (next.length === 1) {
+        const match = chatSessions.find((s: any) => s.documentId === next[0]);
+        if (match) {
+          setActiveSessionId(match.id);
+        } else {
+          createSessionMutation.mutate(next[0]);
+        }
+      } else {
+        setActiveSessionId(null);
+        if (next.length > 1) {
+          setChatMessages([
+            { role: 'assistant', content: `👋 Hi! I can answer questions across your ${next.length} selected documents simultaneously using vector search.` }
+          ]);
+        } else {
+          setChatMessages([]);
+        }
       }
       return next;
     });
@@ -156,26 +206,34 @@ export const AskAi: React.FC = () => {
 
     try {
       let res;
-      if (selectedDocIds.length === 1) {
-        // Single document chat route
-        res = await api.post(`/v1/documents/${selectedDocIds[0]}/chat`, {
+      if (selectedDocIds.length === 1 && activeSessionId) {
+        // Send to persistent session endpoint
+        res = await api.post(`/v1/chats/${activeSessionId}/messages`, {
           question: messageText,
         });
+        if (res.data.success) {
+          const { answer, sources } = res.data.data;
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: answer, sources },
+          ]);
+          queryClient.invalidateQueries({ queryKey: ['chatHistory', activeSessionId] });
+          queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+        }
       } else {
-        // Multi-document chat route
+        // Multi-document direct workspace chat route (stateless or cross-doc)
         res = await api.post(`/v1/documents/chat`, {
           docIds: selectedDocIds,
           question: messageText,
         });
-      }
-
-      if (res.data.success) {
-        const answer = res.data.answer || 'No response from AI.';
-        const sources = res.data.sources || [];
-        setChatMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: answer, sources },
-        ]);
+        if (res.data.success) {
+          const answer = res.data.answer || 'No response from AI.';
+          const sources = res.data.sources || [];
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: answer, sources },
+          ]);
+        }
       }
     } catch (err: any) {
       const errMsg = err.response?.data?.message || err.message || 'An error occurred.';
@@ -286,7 +344,7 @@ export const AskAi: React.FC = () => {
               </div>
 
               {/* List */}
-              <div className="space-y-1.5 max-h-48 lg:max-h-[300px] overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                 {isDocsLoading ? (
                   <div className="flex justify-center py-4">
                     <RefreshCw className="w-5 h-5 text-brand-primary animate-spin" />
@@ -300,14 +358,14 @@ export const AskAi: React.FC = () => {
                       <button
                         key={doc.id}
                         type="button"
-                        onClick={() => handleSelectDoc(doc.id, doc.name)}
-                        className={`w-full text-left p-3 rounded-xl border text-xs transition-all flex items-center justify-between gap-3 ${
+                        onClick={() => handleSelectDoc(doc.id)}
+                        className={`w-full text-left p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between gap-3 ${
                           isSelected
                             ? 'bg-brand-primary/10 border-brand-primary/40 text-white shadow-sm ring-1 ring-brand-primary/30'
                             : 'bg-brand-dark/30 border-white/5 text-brand-textMuted hover:border-white/10 hover:text-brand-text'
                         }`}
                       >
-                        <div className="overflow-hidden flex items-center gap-2.5">
+                        <div className="overflow-hidden flex items-center gap-2">
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -324,6 +382,47 @@ export const AskAi: React.FC = () => {
                         ) : (
                           <RefreshCw className="w-3 h-3 text-brand-primary animate-spin shrink-0" />
                         )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <hr className="border-white/5" />
+
+            {/* Chat History Selector */}
+            <div className="space-y-3">
+              <h2 className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                Recent Chat Threads
+              </h2>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {isSessionsLoading ? (
+                  <div className="flex justify-center py-2">
+                    <RefreshCw className="w-4 h-4 text-brand-primary animate-spin" />
+                  </div>
+                ) : chatSessions.length === 0 ? (
+                  <p className="text-[10px] text-brand-textMuted text-center py-2">No past chats.</p>
+                ) : (
+                  chatSessions.map((session: any) => {
+                    const isActive = session.id === activeSessionId;
+                    return (
+                      <button
+                        key={session.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDocIds([session.documentId]);
+                          setActiveSessionId(session.id);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg border text-[11px] transition-all flex items-center gap-2 ${
+                          isActive
+                            ? 'bg-brand-primary/10 border-brand-primary/30 text-white font-medium shadow-sm'
+                            : 'bg-brand-dark/20 border-white/5 text-brand-textMuted hover:border-white/10 hover:text-brand-text'
+                        }`}
+                      >
+                        <Bot className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-brand-primary' : 'text-brand-textMuted'}`} />
+                        <span className="truncate block flex-1">{session.title}</span>
                       </button>
                     );
                   })
