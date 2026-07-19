@@ -15,6 +15,7 @@ router.post('/:id/convert', authenticateJWT, DocumentController.convert);
 router.post('/:id/chat', authenticateJWT, DocumentController.chat);
 router.put('/:id/ocr', authenticateJWT, DocumentController.updateOcr);
 router.post('/:id/translate', authenticateJWT, DocumentController.translate);
+router.put('/:id/folder', authenticateJWT, DocumentController.assignFolder);
 router.delete('/:id', authenticateJWT, DocumentController.delete);
 
 export default router;

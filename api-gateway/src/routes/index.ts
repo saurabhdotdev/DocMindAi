@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import authRoutes from './auth.routes';
 import documentRoutes from './document.routes';
 import chatRoutes from './chat.routes';
+import folderRoutes from './folder.routes';
 import { prisma } from '../config/prisma';
 import { AppError } from '../middleware/errorHandler';
 
@@ -30,5 +31,6 @@ router.get('/health', async (req: Request, res: Response, next: NextFunction) =>
 router.use(`${API_PREFIX}/auth`, authRoutes);
 router.use(`${API_PREFIX}/documents`, documentRoutes);
 router.use(`${API_PREFIX}/chats`, chatRoutes);
+router.use(`${API_PREFIX}/folders`, folderRoutes);
 
 export default router;

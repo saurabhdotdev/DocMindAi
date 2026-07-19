@@ -32,6 +32,11 @@ export const AskAi: React.FC = () => {
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [previewPage, setPreviewPage] = useState<number>(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
+  const [previewTab, setPreviewTab] = useState<'pdf' | 'layout'>('pdf');
+  const [highlightedText, setHighlightedText] = useState<string | null>(null);
+
+  // Multimedia Timeline ref
+  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
 
   // Comparisons state
   const [comparisons, setComparisons] = useState<any[] | null>(null);
@@ -283,6 +288,14 @@ export const AskAi: React.FC = () => {
     "Analyze candidate technical stack",
     "List key achievements"
   ];
+
+  // Detect if preview file is audio or video
+  const isPreviewMedia = previewDoc?.mimeType?.startsWith('audio/') || 
+                         previewDoc?.mimeType?.startsWith('video/') ||
+                         previewDoc?.name?.endsWith('.mp3') ||
+                         previewDoc?.name?.endsWith('.wav') ||
+                         previewDoc?.name?.endsWith('.mp4') ||
+                         previewDoc?.name?.endsWith('.m4a');
 
   return (
     <MainLayout>
@@ -547,6 +560,7 @@ export const AskAi: React.FC = () => {
                                   onClick={() => {
                                     setPreviewDocId(src.docId);
                                     setPreviewPage(src.page);
+                                    setHighlightedText(src.text); // Hold clicked citation context
                                     setIsPreviewOpen(true);
                                   }}
                                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 hover:border-brand-primary/40 hover:bg-brand-primary/5 text-[9px] text-brand-textMuted hover:text-white transition-all max-w-[200px]"
@@ -615,33 +629,181 @@ export const AskAi: React.FC = () => {
 
               </div>
 
-              {/* Right Side: Split PDF Preview Pane */}
+              {/* Right Side: Split PDF / Media Workspace Preview Pane */}
               {isPreviewOpen && (
                 <div className="w-full lg:w-[450px] xl:w-[600px] shrink-0 flex flex-col h-full bg-brand-dark/40 border-l border-white/5 animate-in slide-in-from-right duration-300">
-                  <div className="px-4 py-3.5 border-b border-white/5 flex justify-between items-center bg-white/[0.01] shrink-0">
-                    <div className="flex items-center gap-2 overflow-hidden">
+                  
+                  {/* Preview pane header */}
+                  <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-white/[0.01] shrink-0">
+                    <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
                       <FileCheck className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-                      <span className="text-xs font-bold text-white truncate max-w-[250px]" title={previewDoc?.name}>
-                        Preview: {previewDoc?.name || 'Loading...'}
-                      </span>
-                      <span className="text-[10px] text-brand-textMuted shrink-0">
-                        (Page {previewPage})
+                      <span className="text-xs font-bold text-white truncate" title={previewDoc?.name}>
+                        {previewDoc?.name || 'Loading...'}
                       </span>
                     </div>
+
+                    {/* Preview mode tabs (only for non-media text/PDF files) */}
+                    {!isPreviewMedia && previewDoc && (
+                      <div className="flex border border-white/5 rounded-lg overflow-hidden mr-3 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewTab('pdf')}
+                          className={`px-2.5 py-1 text-[10px] font-medium transition-all ${
+                            previewTab === 'pdf' ? 'bg-brand-primary/20 text-brand-primary' : 'text-brand-textMuted hover:text-white'
+                          }`}
+                        >
+                          PDF Original
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewTab('layout')}
+                          className={`px-2.5 py-1 text-[10px] font-medium transition-all ${
+                            previewTab === 'layout' ? 'bg-brand-primary/20 text-brand-primary' : 'text-brand-textMuted hover:text-white'
+                          }`}
+                        >
+                          Visual Layout
+                        </button>
+                      </div>
+                    )}
+
                     <button
-                      onClick={() => setIsPreviewOpen(false)}
-                      className="text-[10px] font-bold text-brand-textMuted hover:text-white px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                      onClick={() => {
+                        setIsPreviewOpen(false);
+                        setHighlightedText(null);
+                      }}
+                      className="text-[10px] font-bold text-brand-textMuted hover:text-white px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg transition-colors shrink-0"
                     >
                       Close [X]
                     </button>
                   </div>
-                  <div className="flex-1 bg-[#1e1e24] relative">
+
+                  <div className="flex-1 bg-[#1e1e24] relative flex flex-col min-h-0 overflow-y-auto">
                     {previewDoc?.downloadUrl ? (
-                      <iframe
-                        src={`${previewDoc.downloadUrl}#page=${previewPage}`}
-                        className="w-full h-full border-none"
-                        title="PDF Document Preview"
-                      />
+                      isPreviewMedia ? (
+                        /* Multimedia Video/Audio Player & Transcription Timeline */
+                        <div className="flex-1 flex flex-col p-4 min-h-0">
+                          {/* HTML5 Player */}
+                          <div className="w-full bg-brand-dark/50 border border-white/5 rounded-xl overflow-hidden shadow-md shrink-0">
+                            {previewDoc.mimeType?.startsWith('video/') || previewDoc.name.endsWith('.mp4') ? (
+                              <video
+                                ref={mediaRef as React.RefObject<HTMLVideoElement>}
+                                src={previewDoc.downloadUrl}
+                                controls
+                                className="w-full max-h-[220px] bg-black"
+                              />
+                            ) : (
+                              <div className="p-4 flex flex-col items-center">
+                                <span className="text-[10px] text-brand-textMuted uppercase font-bold tracking-wider mb-2">Media Audio Playback</span>
+                                <audio
+                                  ref={mediaRef as React.RefObject<HTMLAudioElement>}
+                                  src={previewDoc.downloadUrl}
+                                  controls
+                                  className="w-full"
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Scrollable Timestamped Transcription segments */}
+                          <div className="flex-1 overflow-y-auto mt-4 space-y-2 pr-1">
+                            <span className="text-[9px] font-bold text-brand-textMuted uppercase tracking-wider block mb-2">
+                              Interactive Transcription Timelines
+                            </span>
+                            {previewDoc.ocrResult?.layout?.blocks && previewDoc.ocrResult.layout.blocks.length > 0 ? (
+                              previewDoc.ocrResult.layout.blocks.map((block: any, idx: number) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    const sec = block.seconds || 0;
+                                    if (mediaRef.current) {
+                                      mediaRef.current.currentTime = sec;
+                                      mediaRef.current.play().catch(() => {});
+                                    }
+                                  }}
+                                  className="w-full text-left p-3 rounded-xl border border-white/5 bg-brand-dark/20 hover:border-brand-primary/40 hover:bg-brand-primary/5 transition-all flex gap-3 items-start text-xs group"
+                                >
+                                  <span className="px-2 py-0.5 rounded bg-brand-primary/20 text-brand-primary font-mono text-[9px] font-bold shrink-0 group-hover:bg-brand-primary group-hover:text-white transition-all">
+                                    {block.timestamp || '00:00'}
+                                  </span>
+                                  <span className="text-brand-text leading-relaxed font-medium">{block.text}</span>
+                                </button>
+                              ))
+                            ) : (
+                              <div className="text-center text-brand-textMuted text-xs py-8">
+                                No transcription blocks found.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : previewTab === 'pdf' ? (
+                        /* Standard original PDF Iframe view */
+                        <iframe
+                          src={`${previewDoc.downloadUrl}#page=${previewPage}`}
+                          className="w-full h-full border-none"
+                          title="PDF Document Preview"
+                        />
+                      ) : (
+                        /* Semantic Layout coordinates highlighting map */
+                        <div className="flex-1 p-4 flex flex-col min-h-0 overflow-y-auto">
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="text-[10px] font-bold text-brand-textMuted uppercase tracking-wider">
+                              Semantic Citation Highlighting Canvas
+                            </span>
+                            <span className="text-[9px] text-brand-textMuted">Glowing blocks show citation match</span>
+                          </div>
+
+                          <div className="relative w-[340px] md:w-[480px] h-[550px] bg-brand-dark/40 border border-white/5 rounded-xl overflow-hidden mx-auto bg-gradient-to-b from-brand-dark/20 to-brand-dark/50 shrink-0">
+                            {previewDoc.ocrResult?.layout?.blocks?.map((block: any, idx: number) => {
+                              const [rawX, rawY, rawW, rawH] = block.boundingBox || [50, 50 + idx * 30, 300, 20];
+                              const scaleX = 480 / 600;
+                              const scaleY = 550 / 800;
+                              const x = Math.round(rawX * scaleX);
+                              const y = Math.round(rawY * scaleY);
+                              const w = Math.round(rawW * scaleX);
+                              const h = Math.round(rawH * scaleY);
+
+                              // Semantic match to citation text snippet
+                              const isHighlighted = highlightedText && block.text.toLowerCase().includes(highlightedText.toLowerCase());
+
+                              return (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    position: 'absolute',
+                                    left: `${x}px`,
+                                    top: `${y}px`,
+                                    width: `${Math.max(20, w)}px`,
+                                    height: `${Math.max(10, h)}px`,
+                                  }}
+                                  className={`border rounded transition-all flex items-center justify-center ${
+                                    isHighlighted
+                                      ? 'bg-yellow-500/25 border-yellow-400 ring-2 ring-yellow-400/50 shadow-lg shadow-yellow-400/20 z-20 scale-[1.01]'
+                                      : 'bg-brand-primary/5 border-white/5'
+                                  }`}
+                                  title={block.text}
+                                >
+                                  {isHighlighted && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Highlighted text preview block below */}
+                          {highlightedText && (
+                            <div className="bg-yellow-500/10 border border-yellow-400/30 rounded-xl p-3.5 mt-3.5">
+                              <span className="text-[9px] font-bold text-yellow-400 uppercase tracking-wider block mb-1">
+                                Cited Source Text Highlighted
+                              </span>
+                              <p className="text-xs text-brand-text leading-relaxed italic">
+                                "{highlightedText}"
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full gap-2.5 text-brand-textMuted text-xs">
                         <RefreshCw className="w-5 h-5 text-brand-primary animate-spin" />

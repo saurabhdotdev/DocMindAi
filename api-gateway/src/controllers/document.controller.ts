@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { DocumentService } from '../services/document.service';
 import { AppError } from '../middleware/errorHandler';
+import { prisma } from '../config/prisma';
 
 export class DocumentController {
   // Handle file uploads
@@ -234,6 +235,47 @@ export class DocumentController {
       return res.status(200).json({
         success: true,
         data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Assign a document to a folder
+  static async assignFolder(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { folderId } = req.body;
+
+      const document = await prisma.document.findFirst({
+        where: { id, userId: req.user.id },
+      });
+
+      if (!document) {
+        return next(new AppError('Document not found or access denied', 404));
+      }
+
+      if (folderId) {
+        const folder = await prisma.folder.findFirst({
+          where: { id: folderId, userId: req.user.id },
+        });
+        if (!folder) {
+          return next(new AppError('Target folder not found or access denied', 404));
+        }
+      }
+
+      const updated = await prisma.document.update({
+        where: { id },
+        data: { folderId: folderId || null },
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: updated,
       });
     } catch (error) {
       return next(error);

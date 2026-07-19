@@ -54,6 +54,10 @@ class TranslateRequest(BaseModel):
 class CompareRequest(BaseModel):
     docs: list
 
+class TranscribeRequest(BaseModel):
+    storageKey: str
+    docName: str
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "docmind-ai-service"}
@@ -145,6 +149,14 @@ def compare_docs_metrics(payload: CompareRequest):
             "success": True,
             "comparison": result
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/transcribe")
+def transcribe_multimedia_file(payload: TranscribeRequest):
+    try:
+        result = ai_engine.transcribe_multimedia(payload.storageKey, payload.docName)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

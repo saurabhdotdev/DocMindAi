@@ -8,7 +8,6 @@ import {
   Calendar, Sparkles, RefreshCw, Download, Play, ExternalLink
 } from 'lucide-react';
 
-
 export const Dashboard: React.FC = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -18,6 +17,13 @@ export const Dashboard: React.FC = () => {
   
   // Track selected format per document ID
   const [selectedFormats, setSelectedFormats] = useState<Record<string, string>>({});
+
+  // Collaborative Folders state
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareFolderId, setShareFolderId] = useState<string | null>(null);
 
   // Helper to map formats
   const getValidTargetFormats = (type: string): string[] => {
@@ -44,6 +50,57 @@ export const Dashboard: React.FC = () => {
     return CONVERSION_MAP[cleanType] || [];
   };
 
+  // Fetch folders list
+  const { data: folders = [], refetch: refetchFolders } = useQuery({
+    queryKey: ['folders'],
+    queryFn: async () => {
+      const res = await api.get('/v1/folders');
+      return res.data.data;
+    }
+  });
+
+  // Create folder mutation
+  const createFolderMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await api.post('/v1/folders', { name });
+      return res.data.data;
+    },
+    onSuccess: () => {
+      refetchFolders();
+      setNewFolderName('');
+      setIsCreateFolderOpen(false);
+    }
+  });
+
+  // Share folder mutation
+  const shareFolderMutation = useMutation({
+    mutationFn: async ({ folderId, email }: { folderId: string; email: string }) => {
+      const res = await api.put(`/v1/folders/${folderId}/share`, { email });
+      return res.data.data;
+    },
+    onSuccess: () => {
+      refetchFolders();
+      setShareEmail('');
+      setShareFolderId(null);
+      alert('Folder shared successfully!');
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || 'Share folder failed.');
+    }
+  });
+
+  // Assign document to folder mutation
+  const assignFolderMutation = useMutation({
+    mutationFn: async ({ docId, folderId }: { docId: string; folderId: string | null }) => {
+      const res = await api.put(`/v1/documents/${docId}/folder`, { folderId });
+      return res.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      refetchFolders();
+    }
+  });
+
   // Conversion trigger mutation
   const convertMutation = useMutation({
     mutationFn: async ({ docId, targetFormat }: { docId: string; targetFormat: string }) => {
@@ -57,8 +114,6 @@ export const Dashboard: React.FC = () => {
       alert(err.response?.data?.message || 'Failed to start conversion job');
     }
   });
-
-
 
   // Fetch document listing with smart polling
   const { data: documentsData, isLoading: isDocsLoading } = useQuery({
@@ -90,10 +145,14 @@ export const Dashboard: React.FC = () => {
       });
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setUploadSuccess(true);
       setUploadFile(null);
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      // If a folder is currently selected, auto-assign the uploaded file to it
+      if (selectedFolderId && data?.data?.document?.id) {
+        assignFolderMutation.mutate({ docId: data.data.document.id, folderId: selectedFolderId });
+      }
       setTimeout(() => setUploadSuccess(false), 3000);
     },
     onError: (err: any) => {
@@ -111,6 +170,7 @@ export const Dashboard: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      refetchFolders();
     },
   });
 
@@ -138,6 +198,11 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  // Filter documents based on folder filter
+  const displayedDocuments = documentsData
+    ? documentsData.filter((doc: any) => !selectedFolderId || doc.folderId === selectedFolderId)
+    : [];
+
   return (
     <MainLayout>
       {/* Main Workspace content */}
@@ -151,8 +216,10 @@ export const Dashboard: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Document Upload Section */}
+          {/* Left Column: Upload & Folder Sidebar */}
           <div className="col-span-1 lg:col-span-1 space-y-6">
+            
+            {/* Upload Zone */}
             <div className="glass-panel rounded-2xl p-6 border border-white/5">
               <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted mb-4">Upload File</h2>
               
@@ -170,7 +237,7 @@ export const Dashboard: React.FC = () => {
                     {uploadFile ? uploadFile.name : 'Select or Drop file'}
                   </span>
                   <span className="text-[10px] text-brand-textMuted mt-1 block">
-                    Supports PDFs, Office, Images up to 50MB
+                    Supports PDFs, Office, Media files up to 50MB
                   </span>
                 </div>
 
@@ -201,30 +268,92 @@ export const Dashboard: React.FC = () => {
                 </button>
               </form>
             </div>
+
+            {/* Folders List Panel */}
+            <div className="glass-panel rounded-2xl p-6 border border-white/5">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">Folders Workspace</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateFolderOpen(true)}
+                  className="p-1 hover:bg-white/5 rounded text-brand-primary"
+                  title="New Folder"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedFolderId(null)}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all flex items-center justify-between ${
+                    selectedFolderId === null
+                      ? 'bg-brand-primary/10 border border-brand-primary/20 text-white font-medium shadow-sm'
+                      : 'text-brand-textMuted hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">📂 All Documents</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5">{documentsData?.length || 0}</span>
+                </button>
+
+                {folders.map((folder: any) => {
+                  const isActive = selectedFolderId === folder.id;
+                  return (
+                    <div key={folder.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFolderId(folder.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all flex items-center justify-between ${
+                          isActive
+                            ? 'bg-brand-primary/10 border border-brand-primary/20 text-white font-medium shadow-sm'
+                            : 'text-brand-textMuted hover:text-white'
+                        }`}
+                      >
+                        <span className="truncate pr-16">📁 {folder.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5">{folder.documents?.length || 0}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShareFolderId(folder.id)}
+                        className="absolute right-10 top-2 opacity-0 group-hover:opacity-100 text-[9px] bg-brand-primary/20 hover:bg-brand-primary/30 border border-brand-primary/30 text-white px-2 py-0.5 rounded transition-all shadow-sm"
+                      >
+                        Share
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
 
-          {/* Document list details */}
+          {/* Right Column: Ingested Documents List */}
           <div className="col-span-1 lg:col-span-2 space-y-6">
             <div className="glass-panel rounded-2xl p-6 border border-white/5 min-h-[400px]">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted mb-4">Ingested Documents</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted mb-4">
+                {selectedFolderId 
+                  ? `Ingested Documents: ${folders.find((f: any) => f.id === selectedFolderId)?.name || 'Folder'}` 
+                  : 'Ingested Documents'
+                }
+              </h2>
 
               {isDocsLoading ? (
                 <div className="flex justify-center items-center py-20">
                   <RefreshCw className="w-6 h-6 text-brand-primary animate-spin" />
                 </div>
-              ) : !documentsData || documentsData.length === 0 ? (
+              ) : displayedDocuments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
                   <FileText className="w-12 h-12 text-brand-border mb-3" />
-                  <span className="text-sm font-semibold text-brand-text">No documents yet</span>
-                  <span className="text-xs text-brand-textMuted mt-1">Upload a PDF or image in the left panel to begin</span>
+                  <span className="text-sm font-semibold text-brand-text">No documents in this workspace</span>
+                  <span className="text-xs text-brand-textMuted mt-1">Upload a file or drag elements to organize them.</span>
                 </div>
               ) : (
                 <div className="divide-y divide-brand-border">
-                  {documentsData.map((doc: any) => {
+                  {displayedDocuments.map((doc: any) => {
                     const validFormats = getValidTargetFormats(doc.type);
                     const selectedFormat = selectedFormats[doc.id] || validFormats[0] || '';
                     
-                    // Check if there are active running or completed jobs for this doc
                     const activeJobs = doc.jobLogs || [];
                     const runningJob = activeJobs.find((j: any) => j.status === 'PENDING' || j.status === 'PROCESSING');
                     const completedConversions = activeJobs.filter((j: any) => j.jobType === 'CONVERSION' && j.status === 'COMPLETED');
@@ -270,7 +399,19 @@ export const Dashboard: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2.5">
+                            {/* Folder Selector Dropdown */}
+                            <select
+                              value={doc.folderId || ''}
+                              onChange={(e) => assignFolderMutation.mutate({ docId: doc.id, folderId: e.target.value || null })}
+                              className="bg-brand-dark border border-white/5 rounded px-2.5 py-1.5 text-[10px] text-white focus:outline-none focus:border-brand-primary transition-all hover:border-white/10"
+                            >
+                              <option value="">No Folder</option>
+                              {folders.map((f: any) => (
+                                <option key={f.id} value={f.id}>{f.name}</option>
+                              ))}
+                            </select>
+
                             <button 
                               onClick={() => navigate(`/documents/${doc.id}`)}
                               className="px-3 py-2 border border-brand-primary/30 bg-brand-primary/10 hover:bg-brand-primary/20 rounded-lg text-brand-primary hover:text-white transition-all flex items-center gap-1.5 text-xs font-semibold shadow-sm"
@@ -351,7 +492,6 @@ export const Dashboard: React.FC = () => {
                             <span className="text-[10px] text-brand-textMuted">No conversions available for this type</span>
                           )}
 
-                          {/* List completed conversion downloads */}
                           {completedConversions.length > 0 && (
                             <div className="w-full border-t border-brand-border/40 pt-2 mt-1 space-y-1.5">
                               <span className="text-[10px] uppercase font-bold text-brand-textMuted tracking-wider block">Converted Outputs:</span>
@@ -390,7 +530,75 @@ export const Dashboard: React.FC = () => {
 
         </div>
       </main>
+
+      {/* Create Folder Modal */}
+      {isCreateFolderOpen && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-brand-dark/95 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-extrabold text-white">Create New Folder</h3>
+            <input
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Folder name..."
+              className="glass-input text-xs w-full"
+            />
+            <div className="flex gap-2.5 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsCreateFolderOpen(false)}
+                className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs text-brand-textMuted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!newFolderName.trim() || createFolderMutation.isPending}
+                onClick={() => createFolderMutation.mutate(newFolderName)}
+                className="glass-button-primary px-3.5 py-1.5 text-xs"
+              >
+                Create Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Folder Modal */}
+      {shareFolderId && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-brand-dark/95 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-extrabold text-white">Share Folder Workspace</h3>
+            <p className="text-[10px] text-brand-textMuted">Enter other user's email address to grant read access to this folder collection.</p>
+            <input
+              type="email"
+              value={shareEmail}
+              onChange={(e) => setShareEmail(e.target.value)}
+              placeholder="User email (e.g. coworker@docmind.ai)..."
+              className="glass-input text-xs w-full"
+            />
+            <div className="flex gap-2.5 justify-end">
+              <button
+                type="button"
+                onClick={() => setShareFolderId(null)}
+                className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs text-brand-textMuted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!shareEmail.trim() || shareFolderMutation.isPending}
+                onClick={() => shareFolderMutation.mutate({ folderId: shareFolderId, email: shareEmail })}
+                className="glass-button-primary px-3.5 py-1.5 text-xs"
+              >
+                Share Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 };
+
 export default Dashboard;

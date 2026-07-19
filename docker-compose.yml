@@ -79,6 +79,11 @@ services:
       - PORT=8000
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - S3_BUCKET_NAME=docmind-uploads
+      - S3_ENDPOINT=http://localstack:4566
     depends_on:
       - qdrant
 
