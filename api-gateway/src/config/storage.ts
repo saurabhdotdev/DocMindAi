@@ -1,4 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
+
+// Polyfill global WebSocket for Supabase Realtime in older Node.js runtimes (Node < 22)
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocket as any;
+}
+
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { s3Client, initializeBucket as initializeS3Bucket } from './s3';
 import { logger } from '../utils/logger';
