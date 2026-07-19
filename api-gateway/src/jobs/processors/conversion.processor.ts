@@ -2,13 +2,11 @@ import { Job } from 'bullmq';
 import { IJobProcessor, JobProcessorResult } from './index';
 import { DocumentJobPayload } from '../queue';
 import { prisma } from '../../config/prisma';
-import { s3Client } from '../../config/s3';
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { downloadFromStorage, uploadToStorage } from '../../config/storage';
 import { logger } from '../../utils/logger';
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
-const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'docmind-uploads';
 
 // Sanitizer helper for pdf-lib standard fonts to prevent encoding crashes
 function sanitizeForPdfLib(text: string): string {
@@ -20,15 +18,6 @@ function sanitizeForPdfLib(text: string): string {
   return clean.split('').map(char => (char.charCodeAt(0) > 255 ? '' : char)).join('');
 }
 
-// Stream helper to read S3 object body
-async function streamToBuffer(stream: any): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: any[] = [];
-    stream.on('data', (chunk: any) => chunks.push(chunk));
-    stream.on('error', reject);
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-  });
-}
 
 export class ConversionProcessor implements IJobProcessor {
   async process(job: Job<DocumentJobPayload>): Promise<JobProcessorResult> {
@@ -53,15 +42,9 @@ export class ConversionProcessor implements IJobProcessor {
     const outputKey = `${folderPath}/converted_${baseName}.${targetExt}`;
 
     try {
-      // 2. Download original file from S3 to read content
-      logger.info(`[ConversionProcessor] Downloading original S3 file: ${document.storageKey}`);
-      const s3Response = await s3Client.send(
-        new GetObjectCommand({
-          Bucket: S3_BUCKET_NAME,
-          Key: document.storageKey,
-        })
-      );
-      const originalFileBuffer = await streamToBuffer(s3Response.Body);
+      // 2. Download original file from Supabase Storage
+      logger.info(`[ConversionProcessor] Downloading original file: ${document.storageKey}`);
+      const originalFileBuffer = await downloadFromStorage(document.storageKey);
 
       // Simulate conversion computing delay
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -312,16 +295,9 @@ ${paragraphsXml}
         contentType = 'text/plain';
       }
 
-      // 5. Upload converted file back to S3
+      // 5. Upload converted file to Supabase Storage
       logger.info(`[ConversionProcessor] Uploading converted output to: ${outputKey}`);
-      await s3Client.send(
-        new PutObjectCommand({
-          Bucket: S3_BUCKET_NAME,
-          Key: outputKey,
-          Body: contentBuffer,
-          ContentType: contentType,
-        })
-      );
+      await uploadToStorage(outputKey, contentBuffer, contentType);
 
       logger.info(`[ConversionProcessor] Successfully converted Document ${documentId} to ${targetFormat}`);
 
@@ -334,8 +310,8 @@ ${paragraphsXml}
         },
       };
     } catch (err: any) {
-      logger.error(`[ConversionProcessor] S3 operations failed: ${err.message}`);
-      throw new Error(`Conversion S3 error: ${err.message}`);
+      logger.error(`[ConversionProcessor] Storage operations failed: ${err.message}`);
+      throw new Error(`Conversion storage error: ${err.message}`);
     }
   }
 }

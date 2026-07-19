@@ -9,7 +9,7 @@ import routes from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimiter';
 import { logger } from './utils/logger';
-import { initializeBucket } from './config/s3';
+import { initializeBucket } from './config/storage';
 import { startQueueWorker } from './jobs/worker';
 
 const app = express();

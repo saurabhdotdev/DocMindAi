@@ -2,8 +2,7 @@ import { Job } from 'bullmq';
 import { IJobProcessor, JobProcessorResult } from './index';
 import { DocumentJobPayload } from '../queue';
 import { prisma } from '../../config/prisma';
-import { s3Client } from '../../config/s3';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { downloadFromStorage } from '../../config/storage';
 import { logger } from '../../utils/logger';
 import { addDocumentJob } from '../queue';
 import { JobType, JobStatus } from '@prisma/client';
@@ -56,9 +55,8 @@ export class ClassificationProcessor implements IJobProcessor {
     const document = await prisma.document.findUnique({ where: { id: documentId } });
     if (!document) throw new Error(`Document ${documentId} not found`);
 
-    // 1. Download from S3
-    const s3Res = await s3Client.send(new GetObjectCommand({ Bucket: S3_BUCKET_NAME, Key: document.storageKey }));
-    const fileBuffer = await streamToBuffer(s3Res.Body);
+    // 1. Download from Supabase Storage
+    const fileBuffer = await downloadFromStorage(document.storageKey);
 
     // 2. Extract text
     const extractedText = await extractTextFromFile(document, fileBuffer);

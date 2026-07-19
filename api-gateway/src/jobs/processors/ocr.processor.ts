@@ -2,8 +2,7 @@ import { Job } from 'bullmq';
 import { IJobProcessor, JobProcessorResult } from './index';
 import { DocumentJobPayload } from '../queue';
 import { prisma } from '../../config/prisma';
-import { s3Client } from '../../config/s3';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { downloadFromStorage } from '../../config/storage';
 import { logger } from '../../utils/logger';
 import mammoth from 'mammoth';
 
@@ -31,8 +30,7 @@ export class OcrProcessor implements IJobProcessor {
     let extractedText: string = options?.extractedText || '';
 
     if (!extractedText) {
-      const s3Res = await s3Client.send(new GetObjectCommand({ Bucket: S3_BUCKET_NAME, Key: document.storageKey }));
-      const fileBuffer = await streamToBuffer(s3Res.Body);
+      const fileBuffer = await downloadFromStorage(document.storageKey);
 
       if (document.mimeType === 'application/pdf') {
         try {

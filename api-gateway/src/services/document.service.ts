@@ -1,14 +1,11 @@
-import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../config/prisma';
-import { s3Client } from '../config/s3';
+import { uploadToStorage, downloadFromStorage, deleteFromStorage, getPublicUrl } from '../config/storage';
 import { AppError } from '../middleware/errorHandler';
 import { JobStatus, JobType } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { addDocumentJob } from '../jobs/queue';
 
-const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'docmind-uploads';
 
 function sanitizeFilename(filename: string): string {
   // Replace spaces with underscores and remove parentheses / brackets to prevent header parsing bugs
@@ -20,20 +17,11 @@ export class DocumentService {
   static async uploadDocument(userId: string, file: Express.Multer.File) {
     const documentId = uuidv4();
     const fileExt = path.extname(file.originalname).toLowerCase();
-    
-    // Create a unique S3 key: users/<userId>/<documentId>/filename
     const storageKey = `users/${userId}/${documentId}/${file.originalname}`;
 
     try {
-      // 1. Upload file buffer to S3
-      await s3Client.send(
-        new PutObjectCommand({
-          Bucket: S3_BUCKET_NAME,
-          Key: storageKey,
-          Body: file.buffer,
-          ContentType: file.mimetype,
-        })
-      );
+      // 1. Upload file to Supabase Storage
+      await uploadToStorage(storageKey, file.buffer, file.mimetype);
 
       // 2. Insert metadata record in database
       const document = await prisma.document.create({
@@ -63,17 +51,7 @@ export class DocumentService {
 
       return document;
     } catch (error: any) {
-      // In case S3 succeeded but DB insertion failed, attempt rollback of the S3 file
-      try {
-        await s3Client.send(
-          new DeleteObjectCommand({
-            Bucket: S3_BUCKET_NAME,
-            Key: storageKey,
-          })
-        );
-      } catch (cleanupErr: any) {
-        // Silently swallow rollback errors to report original root error
-      }
+      try { await deleteFromStorage(storageKey); } catch (_) {}
       throw new AppError(`Failed to process document upload: ${error.message}`, 500);
     }
   }
@@ -107,14 +85,7 @@ export class DocumentService {
           doc.jobLogs.map(async (job) => {
             if (job.status === JobStatus.COMPLETED && job.resultKey) {
               try {
-                const rawFilename = job.resultKey.split('/').pop() || 'converted';
-                const filename = sanitizeFilename(rawFilename);
-                const command = new GetObjectCommand({
-                  Bucket: S3_BUCKET_NAME,
-                  Key: job.resultKey,
-                  ResponseContentDisposition: `attachment; filename="${filename}"`
-                });
-                const resultUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+                const resultUrl = getPublicUrl(job.resultKey);
                 return { ...job, resultUrl };
               } catch (err) {
                 return job;
@@ -163,41 +134,26 @@ export class DocumentService {
       throw new AppError('Document not found or access denied', 404);
     }
 
-    // Generate pre-signed URL (valid for 1 hour)
+    // Generate public download URL via Supabase Storage
     let downloadUrl = '';
     try {
-      const filename = sanitizeFilename(document.name);
-      const command = new GetObjectCommand({
-        Bucket: S3_BUCKET_NAME,
-        Key: document.storageKey,
-        ResponseContentDisposition: `attachment; filename="${filename}"`
-      });
-      downloadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+      downloadUrl = getPublicUrl(document.storageKey);
     } catch (err: any) {
-      throw new AppError(`Error generating download URL: ${err.message}`, 500);
+      downloadUrl = '';
     }
 
-    // Generate pre-signed URLs for any completed conversion/processing outputs
-    const jobLogsWithUrls = await Promise.all(
-      document.jobLogs.map(async (job) => {
-        if (job.status === JobStatus.COMPLETED && job.resultKey) {
-          try {
-            const rawFilename = job.resultKey.split('/').pop() || 'converted';
-            const filename = sanitizeFilename(rawFilename);
-            const command = new GetObjectCommand({
-              Bucket: S3_BUCKET_NAME,
-              Key: job.resultKey,
-              ResponseContentDisposition: `attachment; filename="${filename}"`
-            });
-            const resultUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-            return { ...job, resultUrl };
-          } catch (err) {
-            return job;
-          }
+    // Generate public URLs for any completed conversion/processing outputs
+    const jobLogsWithUrls = document.jobLogs.map((job) => {
+      if (job.status === JobStatus.COMPLETED && job.resultKey) {
+        try {
+          const resultUrl = getPublicUrl(job.resultKey);
+          return { ...job, resultUrl };
+        } catch (err) {
+          return job;
         }
-        return job;
-      })
-    );
+      }
+      return job;
+    });
 
     return {
       ...document,
@@ -222,12 +178,8 @@ export class DocumentService {
     });
 
     try {
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: S3_BUCKET_NAME,
-          Key: document.storageKey,
-        })
-      );
+      await deleteFromStorage(document.storageKey);
+    } catch (_) {}
     } catch (error: any) {
       // If DB delete succeeded but S3 failed, log it but don't crash the request
       // (a background job or policy could clean up orphaned objects)
