@@ -16,6 +16,8 @@ router.post('/:id/chat', authenticateJWT, DocumentController.chat);
 router.put('/:id/ocr', authenticateJWT, DocumentController.updateOcr);
 router.post('/:id/translate', authenticateJWT, DocumentController.translate);
 router.put('/:id/folder', authenticateJWT, DocumentController.assignFolder);
+router.post('/:id/debate', authenticateJWT, DocumentController.debate);
+router.post('/:id/podcast', authenticateJWT, DocumentController.podcast);
 router.delete('/:id', authenticateJWT, DocumentController.delete);
 
 export default router;

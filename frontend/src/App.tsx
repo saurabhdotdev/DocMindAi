@@ -6,6 +6,7 @@ import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
 import { DocumentDetail } from './pages/DocumentDetail';
 import { AskAi } from './pages/AskAi';
+import { Workflows } from './pages/Workflows';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,6 +84,16 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <DocumentDetail />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Workflows Page */}
+          <Route
+            path="/workflows"
+            element={
+              <ProtectedRoute>
+                <Workflows />
               </ProtectedRoute>
             }
           />

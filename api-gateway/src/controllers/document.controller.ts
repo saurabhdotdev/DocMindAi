@@ -281,4 +281,49 @@ export class DocumentController {
       return next(error);
     }
   }
+
+  // Multi-agent AI Debate
+  static async debate(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { question } = req.body;
+
+      if (!question || !question.trim()) {
+        return next(new AppError('Question topic is required for debate', 400));
+      }
+
+      const result = await DocumentService.debateDocument(req.user.id, id, question.trim());
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // NPR podcast dialogue script generator
+  static async podcast(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+
+      const result = await DocumentService.podcastDocument(req.user.id, id);
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

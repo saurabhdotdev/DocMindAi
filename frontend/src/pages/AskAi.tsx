@@ -15,7 +15,7 @@ interface Source {
 }
 
 interface Message {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'leo' | 'sarah' | 'mike';
   content: string;
   sources?: Source[];
 }
@@ -34,6 +34,9 @@ export const AskAi: React.FC = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [previewTab, setPreviewTab] = useState<'pdf' | 'layout'>('pdf');
   const [highlightedText, setHighlightedText] = useState<string | null>(null);
+
+  // Agent Debate state
+  const [isDebateMode, setIsDebateMode] = useState(false);
 
   // Multimedia Timeline ref
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -98,7 +101,7 @@ export const AskAi: React.FC = () => {
   useEffect(() => {
     if (activeSessionHistory) {
       setChatMessages(activeSessionHistory.map((m: any) => ({
-        role: m.role.toLowerCase() as 'user' | 'assistant',
+        role: m.role.toLowerCase() as any,
         content: m.content,
         sources: m.citations || [],
       })));
@@ -233,7 +236,25 @@ export const AskAi: React.FC = () => {
 
     try {
       let res;
-      if (selectedDocIds.length === 1 && activeSessionId) {
+      if (selectedDocIds.length === 1 && isDebateMode) {
+        // Multi-Agent Debate mode API route
+        res = await api.post(`/v1/documents/${selectedDocIds[0]}/debate`, {
+          question: messageText,
+        });
+        if (res.data.success) {
+          const debateDialog = res.data.data;
+          const mappedLines: Message[] = debateDialog.map((d: any) => {
+            let role: 'leo' | 'sarah' | 'mike' = 'leo';
+            if (d.agent.includes('HR')) role = 'sarah';
+            if (d.agent.includes('Analyst')) role = 'mike';
+            return {
+              role,
+              content: d.message,
+            };
+          });
+          setChatMessages((prev) => [...prev, ...mappedLines]);
+        }
+      } else if (selectedDocIds.length === 1 && activeSessionId) {
         // Send to persistent session endpoint
         res = await api.post(`/v1/chats/${activeSessionId}/messages`, {
           question: messageText,
@@ -509,22 +530,40 @@ export const AskAi: React.FC = () => {
                         }
                       </span>
                     </div>
-                    
-                    {/* Comparative matrices action button */}
-                    {selectedDocIds.length > 1 && (
-                      <button
-                        onClick={handleCompareDocuments}
-                        disabled={isCompareLoading}
-                        className="glass-button-primary px-3 py-1.5 text-xs flex items-center gap-1.5 shrink-0"
-                      >
-                        {isCompareLoading ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
-                        )}
-                        <span>Compare Metrics</span>
-                      </button>
-                    )}
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Agent Debate Mode switch */}
+                      {selectedDocIds.length === 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setIsDebateMode(!isDebateMode)}
+                          className={`px-3 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all font-semibold ${
+                            isDebateMode
+                              ? 'bg-brand-primary/20 border-brand-primary text-white shadow-sm ring-1 ring-brand-primary/30'
+                              : 'bg-white/5 border-white/5 text-brand-textMuted hover:text-white'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-brand-primary" />
+                          <span>Debate Panel Mode</span>
+                        </button>
+                      )}
+
+                      {/* Comparative matrices action button */}
+                      {selectedDocIds.length > 1 && (
+                        <button
+                          onClick={handleCompareDocuments}
+                          disabled={isCompareLoading}
+                          className="glass-button-primary px-3 py-1.5 text-xs flex items-center gap-1.5"
+                        >
+                          {isCompareLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                          <span>Compare Metrics</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -536,10 +575,22 @@ export const AskAi: React.FC = () => {
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
                           msg.role === 'user' 
                             ? 'bg-brand-primary/10 border-brand-primary/20' 
+                            : msg.role === 'leo'
+                            ? 'bg-brand-primary/10 border-brand-primary/20'
+                            : msg.role === 'sarah'
+                            ? 'bg-brand-secondary/10 border-brand-secondary/20'
+                            : msg.role === 'mike'
+                            ? 'bg-brand-success/10 border-brand-success/20'
                             : 'bg-white/5 border-white/5'
                         }`}>
                           {msg.role === 'user' ? (
                             <User className="w-3.5 h-3.5 text-brand-primary" />
+                          ) : msg.role === 'leo' ? (
+                            <span className="text-xs">👨‍💻</span>
+                          ) : msg.role === 'sarah' ? (
+                            <span className="text-xs">👩‍💼</span>
+                          ) : msg.role === 'mike' ? (
+                            <span className="text-xs">📊</span>
                           ) : (
                             <Bot className="w-3.5 h-3.5 text-brand-textMuted" />
                           )}
@@ -547,8 +598,19 @@ export const AskAi: React.FC = () => {
                         <div className={`max-w-[80%] px-4 py-3.5 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap shadow-sm ${
                           msg.role === 'user'
                             ? 'bg-brand-primary/20 text-white rounded-tr-sm'
+                            : msg.role === 'leo'
+                            ? 'bg-brand-primary/10 border border-brand-primary/20 text-brand-text rounded-tl-sm'
+                            : msg.role === 'sarah'
+                            ? 'bg-brand-secondary/10 border border-brand-secondary/20 text-brand-text rounded-tl-sm'
+                            : msg.role === 'mike'
+                            ? 'bg-brand-success/10 border border-brand-success/20 text-brand-text rounded-tl-sm'
                             : 'bg-white/5 text-brand-text rounded-tl-sm border border-white/[0.02]'
                         }`}>
+                          {(msg.role === 'leo' || msg.role === 'sarah' || msg.role === 'mike') && (
+                            <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
+                              {msg.role === 'leo' ? 'Leo (Tech Lead)' : msg.role === 'sarah' ? 'Sarah (HR Director)' : 'Mike (Business Analyst)'}
+                            </span>
+                          )}
                           {msg.content}
                           
                           {/* Citation links below AI bubbles */}
@@ -613,7 +675,7 @@ export const AskAi: React.FC = () => {
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendChat()}
-                      placeholder="Ask AI a question about your selected documents..."
+                      placeholder={isDebateMode ? "Ask Leo, Sarah, and Mike to debate a topic..." : "Ask AI a question about your selected documents..."}
                       className="glass-input flex-1 text-xs"
                       disabled={isChatLoading}
                     />

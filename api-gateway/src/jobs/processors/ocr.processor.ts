@@ -96,6 +96,64 @@ export class OcrProcessor implements IJobProcessor {
       });
     }
 
+    // Evaluate workflows for document automation
+    try {
+      const fullDoc = await prisma.document.findUnique({
+        where: { id: documentId },
+        include: { classification: true, resumeAnalysis: true, entities: true },
+      });
+
+      if (fullDoc) {
+        const workflows = await prisma.workflow.findMany({
+          where: { userId: fullDoc.userId, isActive: true, trigger: 'DOCUMENT_PROCESSED' },
+        });
+
+        for (const wf of workflows) {
+          try {
+            const conditions: any = wf.conditions || {};
+            const field = conditions.field;
+            const operator = conditions.operator;
+            const value = conditions.value;
+
+            let match = false;
+
+            if (field === 'category') {
+              const categoryLabel = fullDoc.classification?.label || 'Unknown';
+              if (operator === 'equals' && categoryLabel.toLowerCase() === String(value).toLowerCase()) {
+                match = true;
+              }
+            } else if (field === 'size') {
+              const docSizeKb = fullDoc.size / 1024;
+              if (operator === 'greater_than' && docSizeKb > Number(value)) {
+                match = true;
+              }
+            } else if (field === 'skills') {
+              const skillsList = (fullDoc.resumeAnalysis?.skills as string[]) || [];
+              const hasSkill = skillsList.some(s => s.toLowerCase().includes(String(value).toLowerCase()));
+              if (operator === 'contains' && hasSkill) {
+                match = true;
+              }
+            }
+
+            if (match) {
+              const actions: any = wf.actions || {};
+              if (actions.action === 'MOVE_TO_FOLDER' && actions.folderId) {
+                await prisma.document.update({
+                  where: { id: documentId },
+                  data: { folderId: actions.folderId },
+                });
+                logger.info(`[Workflow] Document ${documentId} auto-moved to folder ${actions.folderId} via workflow: ${wf.name}`);
+              }
+            }
+          } catch (wfErr: any) {
+            logger.error(`[Workflow] Execution failed for ${wf.id}: ${wfErr.message}`);
+          }
+        }
+      }
+    } catch (err: any) {
+      logger.error(`[Workflow Engine] Error fetching document context: ${err.message}`);
+    }
+
     // Trigger Qdrant indexing asynchronously
     fetch(`${AI_SERVICE_URL}/v1/index`, {
       method: 'POST',

@@ -58,6 +58,13 @@ class TranscribeRequest(BaseModel):
     storageKey: str
     docName: str
 
+class DebateRequest(BaseModel):
+    text: str
+    question: str
+
+class PodcastRequest(BaseModel):
+    text: str
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "docmind-ai-service"}
@@ -157,6 +164,28 @@ def transcribe_multimedia_file(payload: TranscribeRequest):
     try:
         result = ai_engine.transcribe_multimedia(payload.storageKey, payload.docName)
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/debate")
+def simulate_debate(payload: DebateRequest):
+    try:
+        result = ai_engine.simulate_agent_debate(payload.text, payload.question)
+        return {
+            "success": True,
+            "debate": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/podcast")
+def generate_podcast(payload: PodcastRequest):
+    try:
+        result = ai_engine.generate_podcast_summary(payload.text)
+        return {
+            "success": True,
+            "podcast": result
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

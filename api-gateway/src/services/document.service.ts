@@ -445,4 +445,68 @@ export class DocumentService {
       throw new AppError(`AI Translation Error: ${error.message}`, 500);
     }
   }
+
+  // Multi-agent document debate simulation
+  static async debateDocument(userId: string, id: string, question: string) {
+    const document = await prisma.document.findFirst({
+      where: { id, userId },
+      include: { ocrResult: true },
+    });
+
+    if (!document || !document.ocrResult) {
+      throw new AppError('Document layout text not found or access denied', 404);
+    }
+
+    const text = document.ocrResult.text;
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/debate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, question }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /debate returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      return body.debate || [];
+    } catch (error: any) {
+      throw new AppError(`AI Debate Error: ${error.message}`, 500);
+    }
+  }
+
+  // NPR podcast conversational summaries script generator
+  static async podcastDocument(userId: string, id: string) {
+    const document = await prisma.document.findFirst({
+      where: { id, userId },
+      include: { ocrResult: true },
+    });
+
+    if (!document || !document.ocrResult) {
+      throw new AppError('Document layout text not found or access denied', 404);
+    }
+
+    const text = document.ocrResult.text;
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/podcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /podcast returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      return body.podcast || {};
+    } catch (error: any) {
+      throw new AppError(`AI Podcast Error: ${error.message}`, 500);
+    }
+  }
 }

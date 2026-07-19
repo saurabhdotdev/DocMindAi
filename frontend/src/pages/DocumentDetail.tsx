@@ -6,16 +6,17 @@ import { MainLayout } from '../components/MainLayout';
 import {
   ArrowLeft, FileText, RefreshCw, Sparkles, Tag, Calendar, HardDrive,
   Brain, Search, Download, AlertCircle,
-  Hash, Mail, Phone, Building2, Clock, Send, User, Bot
+  Hash, Mail, Phone, Building2, Clock, Send, User, Bot, Volume2, Play, Pause
 } from 'lucide-react';
 
 // ─── Tabs ───────────────────────────────────────────────────
-type Tab = 'overview' | 'ocr' | 'entities';
+type Tab = 'overview' | 'ocr' | 'entities' | 'podcast';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <FileText className="w-4 h-4" /> },
   { id: 'ocr', label: 'Extracted Text & Layout', icon: <Brain className="w-4 h-4" /> },
   { id: 'entities', label: 'Entities', icon: <Search className="w-4 h-4" /> },
+  { id: 'podcast', label: 'AI Podcast Summary', icon: <Volume2 className="w-4 h-4" /> },
 ];
 
 // ─── Entity badge colours ─────────────────────────────────
@@ -66,6 +67,51 @@ export const DocumentDetail: React.FC = () => {
   const [targetLang, setTargetLang] = useState('');
   const [translatedBlocks, setTranslatedBlocks] = useState<any[] | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+
+  // AI Podcast summary states
+  const [podcastData, setPodcastData] = useState<any | null>(null);
+  const [isPodcastLoading, setIsPodcastLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentDialogueIdx, setCurrentDialogueIdx] = useState(0);
+  const [playTime, setPlayTime] = useState(0);
+
+  // Podcast synchronized play simulation timer
+  React.useEffect(() => {
+    let timer: any;
+    if (isPlaying && podcastData?.dialogue) {
+      timer = setInterval(() => {
+        setPlayTime((prev) => {
+          const nextTime = prev + 1;
+          const nextIdx = Math.floor(nextTime / 5);
+          if (nextIdx < podcastData.dialogue.length) {
+            setCurrentDialogueIdx(nextIdx);
+          } else {
+            setIsPlaying(false);
+            clearInterval(timer);
+          }
+          return nextTime;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isPlaying, podcastData]);
+
+  const handleGeneratePodcast = async () => {
+    setIsPodcastLoading(true);
+    try {
+      const res = await api.post(`/v1/documents/${id}/podcast`);
+      if (res.data.success) {
+        setPodcastData(res.data.data);
+        setPlayTime(0);
+        setCurrentDialogueIdx(0);
+        setIsPlaying(true);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Podcast generation failed.');
+    } finally {
+      setIsPodcastLoading(false);
+    }
+  };
 
   // Fetch full document details (includes OCR + entities)
   const { data: doc, isLoading, refetch } = useQuery({
@@ -577,6 +623,129 @@ export const DocumentDetail: React.FC = () => {
                       </div>
                     </div>
                   ))
+                )}
+              </div>
+            )}
+
+            {/* ── AI PODCAST SUMMARY TAB ── */}
+            {activeTab === 'podcast' && (
+              <div className="space-y-6">
+                {!podcastData ? (
+                  <div className="glass-panel border border-white/5 rounded-2xl p-12 text-center flex flex-col items-center">
+                    <Volume2 className="w-12 h-12 text-brand-primary mb-4 animate-pulse" />
+                    <h3 className="text-sm font-extrabold text-white">NPR-Style Tech Podcast summaries</h3>
+                    <p className="text-xs text-brand-textMuted mt-2 max-w-sm leading-relaxed">
+                      Generate a synthesized dynamic conversation dialogue script between two tech news hosts (Alex & Brian) discussing the key insights and parameters of this document.
+                    </p>
+                    <button
+                      onClick={handleGeneratePodcast}
+                      disabled={isPodcastLoading}
+                      className="glass-button-primary mt-6 text-xs px-5 py-2.5 flex items-center gap-2"
+                    >
+                      {isPodcastLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Generating Dialogue Script...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-4 h-4" />
+                          <span>Synthesize Podcast Brief</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Glassmorphic Media Player Dashboard */}
+                    <div className="glass-panel border border-white/5 rounded-2xl p-6 bg-gradient-to-r from-brand-primary/10 to-brand-secondary/15 flex flex-col md:flex-row items-center gap-6 shadow-xl">
+                      
+                      {/* Play/Pause Button */}
+                      <button
+                        onClick={() => setIsPlaying(!isPlaying)}
+                        className="w-16 h-16 rounded-full bg-brand-primary hover:bg-brand-primary/90 text-white flex items-center justify-center shadow-lg active:scale-95 transition-all shrink-0"
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-6 h-6 fill-white" />
+                        ) : (
+                          <Play className="w-6 h-6 fill-white ml-1" />
+                        )}
+                      </button>
+
+                      {/* Title & Glowing Waveform */}
+                      <div className="flex-1 space-y-3 w-full">
+                        <div>
+                          <span className="text-[10px] font-bold text-brand-primary uppercase tracking-wider block">Currently Playing</span>
+                          <span className="text-sm font-bold text-white block">{podcastData.title}</span>
+                        </div>
+
+                        {/* Progress Bar & Timer */}
+                        <div className="space-y-1.5">
+                          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden relative">
+                            <div
+                              className="absolute top-0 left-0 h-full bg-brand-primary transition-all duration-300"
+                              style={{ width: `${Math.min(100, (playTime / (podcastData.dialogue.length * 5)) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[9px] font-bold text-brand-textMuted font-mono">
+                            <span>{Math.floor(playTime / 60)}:{(playTime % 60).toString().padStart(2, '0')}</span>
+                            <span>{Math.floor((podcastData.dialogue.length * 5) / 60)}:{((podcastData.dialogue.length * 5) % 60).toString().padStart(2, '0')}</span>
+                          </div>
+                        </div>
+
+                        {/* Glowing audio waveform visualizer */}
+                        <div className="flex gap-1 h-5 items-center justify-center md:justify-start">
+                          {[...Array(20)].map((_, idx) => {
+                            const activeHeight = isPlaying ? Math.floor(Math.random() * 20) + 4 : 4;
+                            return (
+                              <div
+                                key={idx}
+                                style={{ height: `${activeHeight}px` }}
+                                className={`w-1 rounded-full transition-all duration-200 ${
+                                  isPlaying ? 'bg-brand-primary animate-pulse' : 'bg-white/10'
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Conversational Script Dialogue Bubbles */}
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                      <span className="text-[10px] font-bold text-brand-textMuted uppercase tracking-wider block mb-2">Show Transcript Script</span>
+                      {podcastData.dialogue.map((line: any, idx: number) => {
+                        const isActive = idx === currentDialogueIdx;
+                        const isAlex = line.host === 'Alex';
+                        return (
+                          <div
+                            key={idx}
+                            className={`p-4 rounded-2xl border text-xs leading-relaxed transition-all flex gap-3 items-start ${
+                              isActive
+                                ? 'bg-brand-primary/10 border-brand-primary/30 ring-1 ring-brand-primary/20 scale-[1.01] shadow-md shadow-brand-primary/5'
+                                : 'bg-brand-dark/20 border-white/5 opacity-55'
+                            }`}
+                          >
+                            <span className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 font-bold text-xs ${
+                              isAlex ? 'bg-brand-primary/15 border-brand-primary/25 text-brand-primary' : 'bg-brand-secondary/15 border-brand-secondary/25 text-brand-secondary'
+                            }`}>
+                              {isAlex ? '🎙️' : '🎧'}
+                            </span>
+                            <div>
+                              <span className={`font-bold block text-[10px] uppercase tracking-wider mb-0.5 ${
+                                isAlex ? 'text-brand-primary' : 'text-brand-secondary'
+                              }`}>
+                                {line.host} (NPR Host)
+                              </span>
+                              <p className="text-brand-text">{line.text}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                  </div>
                 )}
               </div>
             )}

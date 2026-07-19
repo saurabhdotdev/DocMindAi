@@ -909,3 +909,143 @@ def transcribe_multimedia(storage_key: str, doc_name: str) -> dict:
                 os.remove(local_path)
             except Exception as rm_err:
                 print(f"Failed to remove temp file: {rm_err}")
+
+def simulate_agent_debate(text: str, question: str) -> list:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    prompt = f"""
+    You are a simulator of three professional characters in a discussion panel:
+    1. Leo (Tech Lead): Highly technical, critical of technology selections, focuses on complexity and programming skills.
+    2. Sarah (HR Director): Focuses on team fit, training costs, candidate experience, human dynamics, work timelines.
+    3. Mike (Business Analyst): Focuses on commercial viability, cost-efficiency, business return, project risks.
+    
+    They are debating the following document text and question:
+    Document Context: {text[:4000]}
+    Question/Topic: {question}
+    
+    Simulate a 3-turn debate where each character gives their unique professional opinion.
+    Return ONLY a JSON list of dialogue objects with this format:
+    [
+      {{ "agent": "Leo (Tech Lead)", "message": "Leo's opinion..." }},
+      {{ "agent": "Sarah (HR Director)", "message": "Sarah's opinion..." }},
+      {{ "agent": "Mike (Business Analyst)", "message": "Mike's opinion..." }}
+    ]
+    
+    Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
+    """
+    
+    try:
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    response_format={"type": "json_object"}
+                )
+                content = response.choices[0].message.content
+            except Exception:
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.3
+                        }
+                    )
+                    content = response.text.strip()
+                else:
+                    raise
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.3
+                }
+            )
+            content = response.text.strip()
+            
+        data = json.loads(content)
+        if isinstance(data, dict):
+            # If the LLM returned a dictionary with a key like "debate" or "dialogue"
+            data = list(data.values())[0]
+        return data
+    except Exception as e:
+        print(f"Error in simulate_agent_debate: {e}")
+        return [
+            { "agent": "Leo (Tech Lead)", "message": f"I think this document details are solid. (Simulated fallback due to: {e})" },
+            { "agent": "Sarah (HR Director)", "message": "I agree with Leo but we need to consider onboarding timelines." },
+            { "agent": "Mike (Business Analyst)", "message": "Let's focus on the financial metrics and cost impact." }
+        ]
+
+def generate_podcast_summary(text: str) -> dict:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    prompt = f"""
+    You are a scriptwriter for NPR's news tech podcast.
+    Review the following document context:
+    {text[:5000]}
+    
+    Write a news anchor dialogue between two hosts:
+    - Host A (Alex): Enthusiastic, introduces the document, asks clarifying questions.
+    - Host B (Brian): Expert, breaks down complex topics simply, provides insights.
+    
+    Return ONLY a JSON object strictly matching this format:
+    {{
+      "title": "NPR Tech Brief: Document Summary",
+      "dialogue": [
+        {{ "host": "Alex", "text": "Hello and welcome to today's news brief..." }},
+        {{ "host": "Brian", "text": "Thanks, Alex. Today we are looking at..." }}
+      ]
+    }}
+    
+    Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
+    """
+    
+    try:
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    response_format={"type": "json_object"}
+                )
+                content = response.choices[0].message.content
+            except Exception:
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.3
+                        }
+                    )
+                    content = response.text.strip()
+                else:
+                    raise
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.3
+                }
+            )
+            content = response.text.strip()
+            
+        return json.loads(content)
+    except Exception as e:
+        print(f"Error in generate_podcast_summary: {e}")
+        return {
+            "title": "NPR Brief: Fallback Summary",
+            "dialogue": [
+                { "host": "Alex", "text": "Hey Brian, have you had a chance to read the uploaded document?" },
+                { "host": "Brian", "text": f"Yes Alex, it looks like a comprehensive file, but my system summary generator is running in fallback mode right now: {e}." }
+            ]
+        }
