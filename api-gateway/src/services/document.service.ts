@@ -180,10 +180,6 @@ export class DocumentService {
     try {
       await deleteFromStorage(document.storageKey);
     } catch (_) {}
-    } catch (error: any) {
-      // If DB delete succeeded but S3 failed, log it but don't crash the request
-      // (a background job or policy could clean up orphaned objects)
-    }
 
     return { success: true };
   }
