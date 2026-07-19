@@ -5,6 +5,7 @@ import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
 import { DocumentDetail } from './pages/DocumentDetail';
+import { AskAi } from './pages/AskAi';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,6 +63,16 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Ask AI Page */}
+          <Route
+            path="/ask-ai"
+            element={
+              <ProtectedRoute>
+                <AskAi />
               </ProtectedRoute>
             }
           />
