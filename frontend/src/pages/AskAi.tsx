@@ -134,17 +134,19 @@ export const AskAi: React.FC = () => {
         question: messageText,
       });
       if (res.data.success) {
+        const answer = res.data.answer || 'No response from AI.';
         setChatMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: res.data.data.answer },
+          { role: 'assistant', content: answer },
         ]);
       }
     } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'An error occurred.';
       setChatMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: `Error: ${err.response?.data?.message || err.message}`,
+          content: `Error: ${errMsg}`,
         },
       ]);
     } finally {
