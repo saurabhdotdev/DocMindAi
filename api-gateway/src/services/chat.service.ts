@@ -71,7 +71,7 @@ export class ChatService {
   }
 
   // Send a message inside a session and get assistant response
-  static async postMessageToSession(userId: string, sessionId: string, question: string) {
+  static async postMessageToSession(userId: string, sessionId: string, question: string, agentProfileId?: string) {
     const session = await prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
     });
@@ -89,8 +89,19 @@ export class ChatService {
       },
     });
 
+    // Lookup custom agent profile if provided
+    let systemPrompt: string | undefined = undefined;
+    if (agentProfileId) {
+      const profile = await prisma.agentProfile.findFirst({
+        where: { id: agentProfileId, userId },
+      });
+      if (profile) {
+        systemPrompt = profile.systemPrompt;
+      }
+    }
+
     // 2. Query AI Service through DocumentService
-    const { answer, sources } = await DocumentService.chatWithDocument(userId, session.documentId, question);
+    const { answer, sources } = await DocumentService.chatWithDocument(userId, session.documentId, question, systemPrompt);
 
     // 3. Save assistant's answer and citations
     const assistantMsg = await prisma.chatMessage.create({

@@ -4,6 +4,7 @@ import documentRoutes from './document.routes';
 import chatRoutes from './chat.routes';
 import folderRoutes from './folder.routes';
 import workflowRoutes from './workflow.routes';
+import agentRoutes from './agent.routes';
 import { prisma } from '../config/prisma';
 import { AppError } from '../middleware/errorHandler';
 
@@ -34,5 +35,6 @@ router.use(`${API_PREFIX}/documents`, documentRoutes);
 router.use(`${API_PREFIX}/chats`, chatRoutes);
 router.use(`${API_PREFIX}/folders`, folderRoutes);
 router.use(`${API_PREFIX}/workflows`, workflowRoutes);
+router.use(`${API_PREFIX}/agents`, agentRoutes);
 
 export default router;

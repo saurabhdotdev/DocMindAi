@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
 import {
-  ArrowLeft, FileText, RefreshCw, Sparkles, Tag, Calendar, HardDrive,
-  Brain, Search, Download, AlertCircle,
+  ArrowLeft, FileText, RefreshCw, Tag,
+  Brain, Search, Download, AlertCircle, MessageSquare,
   Hash, Mail, Phone, Building2, Clock, Send, User, Bot, Volume2, Play, Pause
 } from 'lucide-react';
 
@@ -74,6 +74,31 @@ export const DocumentDetail: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentDialogueIdx, setCurrentDialogueIdx] = useState(0);
   const [playTime, setPlayTime] = useState(0);
+
+  // Collaborative layout annotations states
+  const [activeCommentBlockIdx, setActiveCommentBlockIdx] = useState<number | null>(null);
+  const [commentInput, setCommentInput] = useState('');
+
+  // Fetch block annotations list
+  const { data: annotations = [], refetch: refetchAnnotations } = useQuery({
+    queryKey: ['annotations', id],
+    queryFn: async () => {
+      const res = await api.get(`/v1/documents/${id}/annotations`);
+      return res.data.data;
+    }
+  });
+
+  // Create block annotation mutation
+  const createAnnotationMutation = useMutation({
+    mutationFn: async ({ blockIndex, text }: { blockIndex: number; text: string }) => {
+      const res = await api.post(`/v1/documents/${id}/annotations`, { blockIndex, text });
+      return res.data.data;
+    },
+    onSuccess: () => {
+      refetchAnnotations();
+      setCommentInput('');
+    }
+  });
 
   // Podcast synchronized play simulation timer
   React.useEffect(() => {
@@ -194,8 +219,7 @@ export const DocumentDetail: React.FC = () => {
       setChatMessages(prev => [...prev, { role: 'assistant', content: answer }]);
     } catch (err: any) {
       console.error(err);
-      const errMsg = err.response?.data?.message || err.message || "An error occurred while calling the AI. Please try again.";
-      setChatMessages(prev => [...prev, { role: 'assistant', content: `❌ **Error**: ${errMsg}` }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -203,81 +227,66 @@ export const DocumentDetail: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-brand-dark">
-        <RefreshCw className="w-8 h-8 text-brand-primary animate-spin" />
-      </div>
+      <MainLayout>
+        <div className="flex-1 flex items-center justify-center bg-brand-dark">
+          <RefreshCw className="w-8 h-8 text-brand-primary animate-spin" />
+        </div>
+      </MainLayout>
     );
   }
 
   if (!doc) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-brand-dark flex-col gap-4">
-        <AlertCircle className="w-12 h-12 text-brand-error" />
-        <p className="text-brand-text">Document not found.</p>
-        <button onClick={() => navigate('/dashboard')} className="glass-button-primary">Back to Dashboard</button>
-      </div>
+      <MainLayout>
+        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-brand-dark text-center">
+          <AlertCircle className="w-12 h-12 text-brand-error mb-3 animate-pulse" />
+          <h2 className="text-lg font-bold text-white mb-1">Document Not Found</h2>
+          <p className="text-xs text-brand-textMuted">The requested document does not exist or has been deleted.</p>
+        </div>
+      </MainLayout>
     );
   }
 
-  const isProcessing = doc.status === 'PENDING' || doc.status === 'PROCESSING';
-  const entities: any[] = doc.entities || [];
-  const entityGroups = entities.reduce((acc: Record<string, any[]>, e: any) => {
-    acc[e.category] = acc[e.category] || [];
-    acc[e.category].push(e);
+  const entities = doc.entities || [];
+  const entityGroups = entities.reduce((acc: Record<string, any[]>, item: any) => {
+    if (!acc[item.category]) acc[item.category] = [];
+    acc[item.category].push(item);
     return acc;
   }, {});
 
-  // Determine active layout blocks to draw on visualizer canvas (original vs translated)
+  const isProcessing = doc.status === 'PENDING' || doc.status === 'PROCESSING';
+
+  // Toggle layout display translation support
   const activeLayoutBlocks = translatedBlocks || doc.ocrResult?.layout?.blocks || [];
 
   return (
     <MainLayout>
-      {/* Top Bar */}
-      <header className="glass-panel border-b border-white/5 px-8 py-4 flex items-center justify-between shrink-0">
+      {/* Navigation subheader bar */}
+      <header className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/[0.01] shrink-0">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/dashboard')}
-            className="p-2 hover:bg-white/5 rounded-lg text-brand-textMuted hover:text-white transition-all"
+            className="p-2 border border-brand-border hover:bg-white/5 rounded-lg text-brand-textMuted hover:text-white transition-all"
+            title="Back to Dashboard"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-brand-primary/10 flex items-center justify-center">
-                <FileText className="w-4 h-4 text-brand-primary" />
-              </div>
-              <h1 className="text-base font-bold text-white truncate max-w-md">{doc.name}</h1>
-            </div>
-            <div className="flex items-center gap-3 text-[10px] text-brand-textMuted mt-0.5 ml-10">
-              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(doc.createdAt).toLocaleDateString()}</span>
-              <span>•</span>
-              <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" />{(doc.size / 1024).toFixed(1)} KB</span>
-              <span>•</span>
-              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                doc.status === 'COMPLETED' ? 'bg-brand-success/15 text-brand-success' :
-                doc.status === 'FAILED' ? 'bg-brand-error/15 text-brand-error' :
-                'bg-brand-warning/15 text-brand-warning animate-pulse'
-              }`}>{doc.status}</span>
-              {doc.classification && (
-                <>
-                  <span>•</span>
-                  <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-brand-primary/20 text-brand-primary border border-brand-primary/30 uppercase">
-                    {doc.classification.label} ({Math.round(doc.classification.confidence * 100)}%)
-                  </span>
-                </>
-              )}
-            </div>
+            <h1 className="text-sm font-extrabold text-white">{doc.name}</h1>
+            <p className="text-[10px] text-brand-textMuted mt-0.5 uppercase tracking-wider font-semibold">
+              Category: {doc.classification?.label || 'Unclassified'} • Status: {doc.status}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {isProcessing && <span className="flex items-center gap-1.5 text-xs text-brand-warning"><RefreshCw className="w-3.5 h-3.5 animate-spin" />Processing...</span>}
-          <button onClick={() => refetch()} className="p-2 hover:bg-white/5 rounded-lg text-brand-textMuted hover:text-white transition-all" title="Refresh">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button onClick={handleDownload} className="glass-button-primary flex items-center gap-2 text-sm px-4 py-2">
-            <Download className="w-4 h-4" />Download
-          </button>
-        </div>
+
+        <button
+          onClick={handleDownload}
+          className="glass-button-primary text-xs py-2 flex items-center gap-1.5"
+          title="Download Original file"
+        >
+          <Download className="w-4 h-4" />
+          <span>Download</span>
+        </button>
       </header>
 
       {/* Main Split Layout */}
@@ -366,17 +375,14 @@ export const DocumentDetail: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Work Experience */}
+                      {/* Professional History */}
                       <div className="glass-panel rounded-2xl p-6 border border-white/5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">Work Experience Timeline</span>
-                        <div className="space-y-3.5">
-                          {Array.isArray(doc.resumeAnalysis.experience) && doc.resumeAnalysis.experience.map((exp: any, idx: number) => (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">Professional Experience</span>
+                        <div className="space-y-3">
+                          {Array.isArray(doc.resumeAnalysis.workExperience) && doc.resumeAnalysis.workExperience.map((work: any, idx: number) => (
                             <div key={idx} className="border-l-2 border-brand-secondary/30 pl-3.5 py-1">
-                              <div className="flex justify-between items-start gap-2">
-                                <span className="text-xs font-bold text-white block">{exp.role || 'Role'}</span>
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-brand-textMuted shrink-0 font-medium">{exp.duration}</span>
-                              </div>
-                              <span className="text-[10px] text-brand-textMuted block mt-0.5">{exp.company || 'Company'}</span>
+                              <span className="text-xs font-bold text-white block">{work.role || 'Job Role'}</span>
+                              <span className="text-[10px] text-brand-textMuted block mt-0.5">{work.company || 'Company'}</span>
                             </div>
                           ))}
                         </div>
@@ -384,49 +390,30 @@ export const DocumentDetail: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <>
-                    {/* Default Classification Overview */}
-                    {doc.classification ? (
-                      <div className="glass-panel rounded-2xl p-6 border border-brand-primary/20">
-                        <div className="flex items-center gap-3 mb-4">
-                          <Sparkles className="w-5 h-5 text-brand-primary" />
-                          <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">AI Classification</h2>
+                  /* Standard document overview details */
+                  <div className="space-y-6">
+                    <div className="glass-panel rounded-2xl p-6 border border-white/5 space-y-4">
+                      <h3 className="text-sm font-extrabold text-white">General Document Statistics</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-brand-dark/20 p-4 border border-white/5 rounded-xl">
+                          <span className="text-[10px] font-bold uppercase text-brand-textMuted tracking-wider block">File size</span>
+                          <span className="text-sm font-semibold text-white mt-1 block">{(doc.size / 1024).toFixed(1)} KB</span>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="flex-1">
-                            <span className="text-2xl font-extrabold text-white">{doc.classification.label}</span>
-                            <p className="text-xs text-brand-textMuted mt-1">Identified document category</p>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-3xl font-black text-brand-primary">{Math.round(doc.classification.confidence * 100)}%</div>
-                            <p className="text-xs text-brand-textMuted">confidence</p>
-                          </div>
-                        </div>
-                        <div className="mt-4 bg-brand-dark/40 rounded-full h-2">
-                          <div
-                            className="bg-gradient-to-r from-brand-primary to-brand-secondary h-2 rounded-full transition-all"
-                            style={{ width: `${Math.round(doc.classification.confidence * 100)}%` }}
-                          />
+                        <div className="bg-brand-dark/20 p-4 border border-white/5 rounded-xl">
+                          <span className="text-[10px] font-bold uppercase text-brand-textMuted tracking-wider block">Mimetype</span>
+                          <span className="text-sm font-semibold text-white mt-1 block truncate" title={doc.mimeType}>{doc.mimeType}</span>
                         </div>
                       </div>
-                    ) : isProcessing ? (
-                      <div className="glass-panel rounded-2xl p-6 border border-white/5 flex items-center gap-3">
-                        <RefreshCw className="w-5 h-5 text-brand-warning animate-spin" />
-                        <span className="text-sm text-brand-textMuted">AI classification in progress...</span>
-                      </div>
-                    ) : null}
+                    </div>
 
                     {/* Entities Summary */}
                     {entities.length > 0 && (
                       <div className="glass-panel rounded-2xl p-6 border border-white/5">
-                        <div className="flex items-center gap-3 mb-4">
-                          <Tag className="w-5 h-5 text-brand-primary" />
-                          <h2 className="text-sm font-bold uppercase tracking-wider text-brand-textMuted">Extracted Metadata</h2>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {Object.entries(entityGroups).slice(0, 4).map(([category, ents]) => (
-                            <div key={category} className="bg-brand-dark/30 border border-white/5 rounded-xl p-4">
-                              <span className="text-[10px] uppercase tracking-wider text-brand-textMuted block mb-1">{category}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block mb-3">Entity Highlights Quick View</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {Object.entries(entityGroups).slice(0, 6).map(([cat, ents]) => (
+                            <div key={cat} className="p-3 bg-brand-dark/25 border border-white/5 rounded-xl">
+                              <span className="text-[9px] font-bold text-brand-textMuted uppercase block mb-1">{cat}</span>
                               <span className="text-sm font-semibold text-white truncate block">
                                 {(ents as any[])[0]?.value || 'N/A'}
                               </span>
@@ -435,7 +422,7 @@ export const DocumentDetail: React.FC = () => {
                         </div>
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             )}
@@ -453,10 +440,9 @@ export const DocumentDetail: React.FC = () => {
                       <select
                         value={targetLang}
                         onChange={(e) => handleTranslate(e.target.value)}
-                        disabled={isTranslating}
-                        className="glass-input py-1 px-2 text-[10px] bg-brand-dark max-w-[150px] shrink-0"
+                        className="bg-brand-dark border border-brand-border rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-brand-primary"
                       >
-                        <option value="">Original Language</option>
+                        <option value="">Translate...</option>
                         <option value="Spanish">Spanish 🇪🇸</option>
                         <option value="French">French 🇫🇷</option>
                         <option value="German">German 🇩🇪</option>
@@ -465,7 +451,7 @@ export const DocumentDetail: React.FC = () => {
                       </select>
                       {isTranslating && <RefreshCw className="w-3 h-3 text-brand-primary animate-spin" />}
                     </div>
-                    <span className="text-[9px] text-brand-textMuted">Hover blocks to inspect structure</span>
+                    <span className="text-[9px] text-brand-textMuted">Click blocks to select & comment</span>
                   </div>
                   
                   {activeLayoutBlocks.length > 0 ? (
@@ -480,11 +466,17 @@ export const DocumentDetail: React.FC = () => {
                         const w = Math.round(rawW * scaleX);
                         const h = Math.round(rawH * scaleY);
 
+                        const isSelectedComment = activeCommentBlockIdx === idx;
+
                         return (
                           <div
                             key={idx}
                             onMouseEnter={() => setHoveredBlockIdx(idx)}
                             onMouseLeave={() => setHoveredBlockIdx(null)}
+                            onClick={() => {
+                              setActiveCommentBlockIdx(idx);
+                              setCommentInput('');
+                            }}
                             style={{
                               position: 'absolute',
                               left: `${x}px`,
@@ -493,7 +485,9 @@ export const DocumentDetail: React.FC = () => {
                               height: `${Math.max(10, h)}px`,
                             }}
                             className={`border rounded transition-all cursor-pointer ${
-                              hoveredBlockIdx === idx
+                              isSelectedComment
+                                ? 'bg-brand-secondary/25 border-brand-secondary ring-2 ring-brand-secondary/50 shadow-lg shadow-brand-secondary/20 z-20 scale-[1.01]'
+                                : hoveredBlockIdx === idx
                                 ? 'bg-brand-primary/25 border-brand-primary ring-1 ring-brand-primary shadow-md z-10 scale-[1.01]'
                                 : 'bg-brand-primary/5 border-brand-primary/10 hover:border-brand-primary/40'
                             }`}
@@ -508,85 +502,142 @@ export const DocumentDetail: React.FC = () => {
                   )}
                 </div>
 
-                {/* Right Scrollable Text */}
+                {/* Right Scrollable Text & Comments */}
                 <div className="flex-1 flex flex-col">
                   <div className="flex justify-between items-center mb-3">
                     <span className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">Extracted Content details</span>
                   </div>
                   {doc.ocrResult?.text ? (
-                    <div className="flex flex-col h-[550px]">
-                      
-                      {/* hovered block snippet preview or inline layout editor */}
-                      {hoveredBlockIdx !== null && activeLayoutBlocks[hoveredBlockIdx] ? (
-                        <div className="bg-brand-primary/10 border border-brand-primary/30 rounded-xl p-4 mb-3 animate-in fade-in duration-200">
-                          <span className="text-[9px] font-bold text-brand-primary uppercase tracking-wider block mb-1">
-                            Block #{hoveredBlockIdx + 1} ({activeLayoutBlocks[hoveredBlockIdx].type || 'paragraph'})
-                          </span>
-                          
-                          {isEditingBlock === hoveredBlockIdx ? (
-                            <div className="space-y-2 mt-2">
-                              <textarea
-                                value={editingText}
-                                onChange={(e) => setEditingText(e.target.value)}
-                                className="glass-input w-full text-xs p-2 h-20 bg-brand-dark"
-                              />
-                              <div className="flex gap-2 justify-end">
-                                <button
-                                  type="button"
-                                  onClick={() => setIsEditingBlock(null)}
-                                  className="px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 text-brand-textMuted rounded"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveBlockText(hoveredBlockIdx)}
-                                  disabled={isOcrSaving}
-                                  className="px-2.5 py-1 text-[10px] bg-brand-primary text-white rounded font-bold"
-                                >
-                                  {isOcrSaving ? 'Saving...' : 'Save Changes'}
-                                </button>
+                    <div className="flex flex-col h-[550px] justify-between">
+                      <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+                        {/* hovered block snippet preview or inline layout editor */}
+                        {hoveredBlockIdx !== null && activeLayoutBlocks[hoveredBlockIdx] ? (
+                          <div className="bg-brand-primary/10 border border-brand-primary/30 rounded-xl p-4 animate-in fade-in duration-200">
+                            <span className="text-[9px] font-bold text-brand-primary uppercase tracking-wider block mb-1">
+                              Block #{hoveredBlockIdx + 1} ({activeLayoutBlocks[hoveredBlockIdx].type || 'paragraph'})
+                            </span>
+                            
+                            {isEditingBlock === hoveredBlockIdx ? (
+                              <div className="space-y-2 mt-2">
+                                <textarea
+                                  value={editingText}
+                                  onChange={(e) => setEditingText(e.target.value)}
+                                  className="glass-input w-full text-xs p-2 h-20 bg-brand-dark"
+                                />
+                                <div className="flex gap-2 justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsEditingBlock(null)}
+                                    className="px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 text-brand-textMuted rounded"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveBlockText(hoveredBlockIdx)}
+                                    disabled={isOcrSaving}
+                                    className="px-2.5 py-1 text-[10px] bg-brand-primary text-white rounded font-bold"
+                                  >
+                                    {isOcrSaving ? 'Saving...' : 'Save Changes'}
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="flex justify-between items-start gap-2.5">
-                              <p className="text-xs text-white leading-relaxed italic">
-                                "{activeLayoutBlocks[hoveredBlockIdx].text}"
-                              </p>
-                              {/* Enable editing only in original text mode */}
-                              {!translatedBlocks && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setIsEditingBlock(hoveredBlockIdx);
-                                    setEditingText(activeLayoutBlocks[hoveredBlockIdx].text);
-                                  }}
-                                  className="px-2 py-1 bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30 text-[9px] font-bold rounded transition-colors shrink-0"
-                                >
-                                  Edit Block
-                                </button>
-                              )}
-                            </div>
+                            ) : (
+                              <div className="flex justify-between items-start gap-2.5">
+                                <p className="text-xs text-white leading-relaxed italic">
+                                  "{activeLayoutBlocks[hoveredBlockIdx].text}"
+                                </p>
+                                {/* Enable editing only in original text mode */}
+                                {!translatedBlocks && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsEditingBlock(hoveredBlockIdx);
+                                      setEditingText(activeLayoutBlocks[hoveredBlockIdx].text);
+                                    }}
+                                    className="px-2 py-1 bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30 text-[9px] font-bold rounded transition-colors shrink-0"
+                                  >
+                                    Edit Block
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="bg-white/[0.01] border border-white/5 rounded-xl p-4 text-xs text-brand-textMuted leading-normal">
+                            💡 Hover over layout bounding boxes on the left page visualizer to read specific sections. Click to comment.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Collaborative Block Annotations (Sticky comments) */}
+                      <div className="bg-brand-dark/25 border border-white/5 rounded-xl p-4 mt-3 flex flex-col shrink-0">
+                        <div className="flex justify-between items-center mb-2.5">
+                          <span className="text-[10px] font-bold text-brand-textMuted uppercase tracking-wider flex items-center gap-1.5">
+                            <MessageSquare className="w-3.5 h-3.5 text-brand-secondary animate-pulse" />
+                            Block Comments {activeCommentBlockIdx !== null ? `#${activeCommentBlockIdx + 1}` : ''}
+                          </span>
+                          {activeCommentBlockIdx !== null && (
+                            <button
+                              onClick={() => setActiveCommentBlockIdx(null)}
+                              className="text-[9px] text-brand-textMuted hover:text-white bg-white/5 px-2 py-0.5 rounded transition-all"
+                            >
+                              Clear Selected
+                            </button>
                           )}
                         </div>
-                      ) : (
-                        <div className="bg-white/[0.01] border border-white/5 rounded-xl p-4 mb-3 text-xs text-brand-textMuted leading-normal">
-                          💡 Hover over layout bounding boxes on the left page visualizer to read specific sections.
-                          {!translatedBlocks && " Double click or click 'Edit' to change block text."}
-                        </div>
-                      )}
-                      
-                      <pre className="flex-1 whitespace-pre-wrap text-xs text-brand-text bg-brand-dark/40 rounded-xl p-4 border border-white/5 overflow-y-auto leading-relaxed font-mono">
-                        {translatedBlocks 
-                          ? translatedBlocks.map(b => b.text).join('\n')
-                          : doc.ocrResult.text
-                        }
-                      </pre>
+
+                        {activeCommentBlockIdx === null ? (
+                          <p className="text-[10px] text-brand-textMuted leading-normal text-center py-4">
+                            Click any coordinate block on the left canvas visualizer to inspect or post collaborative annotation sticky notes.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {/* Annotations List */}
+                            <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
+                              {annotations.filter((a: any) => a.blockIndex === activeCommentBlockIdx).length === 0 ? (
+                                <p className="text-[10px] text-brand-textMuted text-center py-2">No comments posted yet.</p>
+                              ) : (
+                                annotations
+                                  .filter((a: any) => a.blockIndex === activeCommentBlockIdx)
+                                  .map((a: any) => (
+                                    <div key={a.id} className="bg-white/5 border border-white/5 rounded-lg p-2.5 text-[10px] leading-relaxed">
+                                      <div className="flex justify-between text-[8px] text-brand-textMuted font-bold mb-1">
+                                        <span>{a.user.firstName} {a.user.lastName || ''}</span>
+                                        <span>{new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                      </div>
+                                      <p className="text-white font-medium">{a.text}</p>
+                                    </div>
+                                  ))
+                              )}
+                            </div>
+
+                            {/* Submit Input */}
+                            <div className="flex gap-2 border-t border-white/5 pt-2.5">
+                              <input
+                                type="text"
+                                value={commentInput}
+                                onChange={(e) => setCommentInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && commentInput.trim() && createAnnotationMutation.mutate({ blockIndex: activeCommentBlockIdx, text: commentInput.trim() })}
+                                placeholder="Add sticky note..."
+                                className="glass-input text-[11px] py-1.5 flex-1"
+                              />
+                              <button
+                                onClick={() => commentInput.trim() && createAnnotationMutation.mutate({ blockIndex: activeCommentBlockIdx, text: commentInput.trim() })}
+                                disabled={!commentInput.trim() || createAnnotationMutation.isPending}
+                                className="glass-button-primary px-3 text-[11px] font-semibold"
+                              >
+                                Post
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-16 text-center h-[550px]">
-                      <Brain className="w-10 h-10 text-brand-border mb-3" />
-                      <p className="text-sm text-brand-textMuted">No text extracted yet.</p>
+                    <div className="flex items-center justify-center h-[550px] border border-dashed border-white/5 rounded-xl text-brand-textMuted text-xs">
+                      OCR Text not extracted.
                     </div>
                   )}
                 </div>
@@ -757,27 +808,25 @@ export const DocumentDetail: React.FC = () => {
           {/* Chat header */}
           <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-white/[0.01]">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-primary to-brand-secondary flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
+              <Bot className="w-4 h-4 text-white animate-pulse" />
             </div>
             <div>
-              <span className="text-sm font-bold text-white">Ask AI Sidebar</span>
-              <p className="text-[10px] text-brand-textMuted">Powered by document context</p>
+              <span className="text-xs font-bold text-white block">DocMind AI Assistant</span>
+              <span className="text-[9px] text-brand-textMuted block">Ground truth semantic querying</span>
             </div>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-            {chatMessages.map((msg, i) => (
-              <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                  msg.role === 'user' ? 'bg-brand-primary/20' : 'bg-white/10'
+          {/* Messages list */}
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+            {chatMessages.map((msg, idx) => (
+              <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border text-[11px] ${
+                  msg.role === 'user' ? 'bg-brand-primary/10 border-brand-primary/20' : 'bg-white/5 border-white/5'
                 }`}>
                   {msg.role === 'user' ? <User className="w-3.5 h-3.5 text-brand-primary" /> : <Bot className="w-3.5 h-3.5 text-brand-textMuted" />}
                 </div>
-                <div className={`max-w-[75%] px-4 py-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap ${
-                  msg.role === 'user'
-                    ? 'bg-brand-primary/20 text-white rounded-tr-sm'
-                    : 'bg-white/5 text-brand-text rounded-tl-sm'
+                <div className={`max-w-[80%] px-3.5 py-2.5 rounded-xl text-xs leading-normal whitespace-pre-wrap ${
+                  msg.role === 'user' ? 'bg-brand-primary/20 text-white rounded-tr-none' : 'bg-white/5 text-brand-text rounded-tl-none border border-white/[0.02]'
                 }`}>
                   {msg.content}
                 </div>
@@ -785,37 +834,38 @@ export const DocumentDetail: React.FC = () => {
             ))}
             {isChatLoading && (
               <div className="flex gap-3">
-                <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                <div className="w-7 h-7 rounded-full bg-white/5 border border-white/5 flex items-center justify-center">
                   <Bot className="w-3.5 h-3.5 text-brand-textMuted" />
                 </div>
-                <div className="px-4 py-3 rounded-2xl bg-white/5 rounded-tl-sm">
-                  <RefreshCw className="w-4 h-4 text-brand-primary animate-spin" />
+                <div className="px-3.5 py-2 rounded-xl bg-white/5 rounded-tl-none flex items-center justify-center">
+                  <RefreshCw className="w-3.5 h-3.5 text-brand-primary animate-spin" />
                 </div>
               </div>
             )}
           </div>
 
-          {/* Input */}
+          {/* Input form */}
           <div className="px-6 py-4 border-t border-white/5 bg-white/[0.01]">
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <input
                 value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendChat()}
-                placeholder="Ask something about this doc..."
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+                placeholder="Ask details..."
                 className="glass-input flex-1 text-xs"
+                disabled={isChatLoading}
               />
               <button
                 onClick={sendChat}
                 disabled={!chatInput.trim() || isChatLoading}
-                className="glass-button-primary px-3 py-2 flex items-center gap-2 disabled:opacity-40"
+                className="glass-button-primary px-3 py-2 flex items-center justify-center disabled:opacity-40"
               >
                 <Send className="w-3.5 h-3.5" />
               </button>
             </div>
-            <p className="text-[9px] text-brand-textMuted mt-2 text-center">e.g. "Summarise key points", "Who is the owner?"</p>
           </div>
         </div>
+
       </main>
     </MainLayout>
   );

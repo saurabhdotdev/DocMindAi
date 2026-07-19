@@ -66,6 +66,8 @@ model User {
   subscription      Subscription?
   folders           Folder[]
   workflows         Workflow[]
+  annotations       Annotation[]
+  agentProfiles     AgentProfile[]
 
   @@map("users")
 }
@@ -141,6 +143,7 @@ model Document {
   entities       Entity[]
   folderId       String?                 @db.Uuid
   folder         Folder?                 @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  annotations    Annotation[]
 
   @@map("documents")
 }
@@ -316,4 +319,31 @@ model Workflow {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("workflows")
+}
+
+model Annotation {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @db.Uuid
+  userId     String   @db.Uuid
+  blockIndex Int
+  text       String
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("annotations")
+}
+
+model AgentProfile {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  name         String
+  systemPrompt String
+  avatar       String   @default("🤖")
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("agent_profiles")
 }

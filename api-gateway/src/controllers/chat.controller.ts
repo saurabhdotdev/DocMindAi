@@ -72,13 +72,18 @@ export class ChatController {
       }
 
       const { id } = req.params;
-      const { question } = req.body;
+      const { question, agentProfileId } = req.body;
 
       if (!question || !question.trim()) {
         return next(new AppError('Question is required', 400));
       }
 
-      const result = await ChatService.postMessageToSession(req.user.id, id, question.trim());
+      const result = await ChatService.postMessageToSession(
+        req.user.id,
+        id,
+        question.trim(),
+        agentProfileId
+      );
 
       return res.status(200).json({
         success: true,

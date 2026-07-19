@@ -229,7 +229,7 @@ export class DocumentService {
   }
 
   // Ask questions about document content using AI Service Q&A
-  static async chatWithDocument(userId: string, documentId: string, question: string) {
+  static async chatWithDocument(userId: string, documentId: string, question: string, systemPrompt?: string) {
     const document = await prisma.document.findFirst({
       where: { id: documentId, userId },
       include: {
@@ -252,7 +252,7 @@ export class DocumentService {
       const res = await fetch(`${AI_SERVICE_URL}/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ocrText, question, docId: documentId }),
+        body: JSON.stringify({ text: ocrText, question, docId: documentId, systemPrompt }),
       });
 
       if (!res.ok) {

@@ -608,7 +608,7 @@ def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) ->
         
     return context
 
-def answer_question(text: str, question: str, doc_id: Any = None) -> tuple:
+def answer_question(text: str, question: str, doc_id: Any = None, custom_system_prompt: str = None) -> tuple:
     gemini_model = get_gemini_client()
     groq_client = get_groq_client()
     
@@ -617,7 +617,7 @@ def answer_question(text: str, question: str, doc_id: Any = None) -> tuple:
         return _fallback_answer_question(text, question, doc_id)
         
     try:
-        system_instructions = """
+        system_instructions = custom_system_prompt if custom_system_prompt else """
         You are a highly intelligent, semantic AI assistant helping a user analyze, extract, and query details from a document.
         You will be provided with the document text context and a user's question.
         

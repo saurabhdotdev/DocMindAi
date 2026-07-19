@@ -7,6 +7,7 @@ import { Dashboard } from './pages/Dashboard';
 import { DocumentDetail } from './pages/DocumentDetail';
 import { AskAi } from './pages/AskAi';
 import { Workflows } from './pages/Workflows';
+import { Agents } from './pages/Agents';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,6 +95,16 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <Workflows />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Custom Agent Hub Page */}
+          <Route
+            path="/agents"
+            element={
+              <ProtectedRoute>
+                <Agents />
               </ProtectedRoute>
             }
           />

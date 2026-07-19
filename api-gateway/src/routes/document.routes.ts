@@ -18,6 +18,8 @@ router.post('/:id/translate', authenticateJWT, DocumentController.translate);
 router.put('/:id/folder', authenticateJWT, DocumentController.assignFolder);
 router.post('/:id/debate', authenticateJWT, DocumentController.debate);
 router.post('/:id/podcast', authenticateJWT, DocumentController.podcast);
+router.get('/:id/annotations', authenticateJWT, DocumentController.listAnnotations);
+router.post('/:id/annotations', authenticateJWT, DocumentController.createAnnotation);
 router.delete('/:id', authenticateJWT, DocumentController.delete);
 
 export default router;

@@ -326,4 +326,61 @@ export class DocumentController {
       return next(error);
     }
   }
+
+  // List annotations for a document block
+  static async listAnnotations(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+
+      const annotations = await prisma.annotation.findMany({
+        where: { documentId: id },
+        include: { user: { select: { firstName: true, lastName: true, email: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: annotations,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Create an annotation on a document block coordinates
+  static async createAnnotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { blockIndex, text } = req.body;
+
+      if (blockIndex === undefined || !text || !text.trim()) {
+        return next(new AppError('blockIndex and text annotation content are required', 400));
+      }
+
+      const annotation = await prisma.annotation.create({
+        data: {
+          documentId: id,
+          userId: req.user.id,
+          blockIndex: Number(blockIndex),
+          text: text.trim(),
+        },
+        include: { user: { select: { firstName: true, lastName: true, email: true } } },
+      });
+
+      return res.status(201).json({
+        success: true,
+        data: annotation,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

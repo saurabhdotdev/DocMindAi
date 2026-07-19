@@ -38,6 +38,10 @@ export const AskAi: React.FC = () => {
   // Agent Debate state
   const [isDebateMode, setIsDebateMode] = useState(false);
 
+  // GDPR Redaction and Custom Agent states
+  const [isRedactedMode, setIsRedactedMode] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+
   // Multimedia Timeline ref
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
 
@@ -82,6 +86,15 @@ export const AskAi: React.FC = () => {
     queryKey: ['chatSessions'],
     queryFn: async () => {
       const res = await api.get('/v1/chats');
+      return res.data.data;
+    }
+  });
+
+  // Fetch custom agent profiles list
+  const { data: customAgents = [] } = useQuery({
+    queryKey: ['agents'],
+    queryFn: async () => {
+      const res = await api.get('/v1/agents');
       return res.data.data;
     }
   });
@@ -258,6 +271,7 @@ export const AskAi: React.FC = () => {
         // Send to persistent session endpoint
         res = await api.post(`/v1/chats/${activeSessionId}/messages`, {
           question: messageText,
+          agentProfileId: selectedAgentId || undefined,
         });
         if (res.data.success) {
           const { answer, sources } = res.data.data;
@@ -532,6 +546,20 @@ export const AskAi: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {/* Custom Agent selector dropdown */}
+                      {selectedDocIds.length === 1 && !isDebateMode && (
+                        <select
+                          value={selectedAgentId}
+                          onChange={(e) => setSelectedAgentId(e.target.value)}
+                          className="bg-brand-dark border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-primary transition-all hover:border-white/10"
+                        >
+                          <option value="">Default AI Assistant</option>
+                          {customAgents.map((a: any) => (
+                            <option key={a.id} value={a.id}>{a.avatar} {a.name}</option>
+                          ))}
+                        </select>
+                      )}
+
                       {/* Agent Debate Mode switch */}
                       {selectedDocIds.length === 1 && (
                         <button
@@ -812,7 +840,15 @@ export const AskAi: React.FC = () => {
                             <span className="text-[10px] font-bold text-brand-textMuted uppercase tracking-wider">
                               Semantic Citation Highlighting Canvas
                             </span>
-                            <span className="text-[9px] text-brand-textMuted">Glowing blocks show citation match</span>
+                            <label className="flex items-center gap-1.5 text-[10px] text-brand-textMuted hover:text-white cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={isRedactedMode}
+                                onChange={(e) => setIsRedactedMode(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded border-white/10 bg-brand-dark/50 text-brand-primary focus:ring-brand-primary accent-brand-primary shrink-0 cursor-pointer"
+                              />
+                              <span>GDPR Redact PII</span>
+                            </label>
                           </div>
 
                           <div className="relative w-[340px] md:w-[480px] h-[550px] bg-brand-dark/40 border border-white/5 rounded-xl overflow-hidden mx-auto bg-gradient-to-b from-brand-dark/20 to-brand-dark/50 shrink-0">
@@ -828,6 +864,13 @@ export const AskAi: React.FC = () => {
                               // Semantic match to citation text snippet
                               const isHighlighted = highlightedText && block.text.toLowerCase().includes(highlightedText.toLowerCase());
 
+                              // Check if block contains PII entities when redacted mode is on
+                              const isPII = isRedactedMode && previewDoc?.entities?.some((e: any) => {
+                                const cat = e.category;
+                                const val = e.value.toLowerCase();
+                                return (cat === 'EMAIL' || cat === 'PHONE' || cat === 'PERSON') && block.text.toLowerCase().includes(val);
+                              });
+
                               return (
                                 <div
                                   key={idx}
@@ -839,13 +882,15 @@ export const AskAi: React.FC = () => {
                                     height: `${Math.max(10, h)}px`,
                                   }}
                                   className={`border rounded transition-all flex items-center justify-center ${
-                                    isHighlighted
+                                    isPII
+                                      ? 'bg-black border-black text-black z-30 select-none pointer-events-none shadow-none ring-0'
+                                      : isHighlighted
                                       ? 'bg-yellow-500/25 border-yellow-400 ring-2 ring-yellow-400/50 shadow-lg shadow-yellow-400/20 z-20 scale-[1.01]'
                                       : 'bg-brand-primary/5 border-white/5'
                                   }`}
-                                  title={block.text}
+                                  title={isPII ? '[REDACTED PII]' : block.text}
                                 >
-                                  {isHighlighted && (
+                                  {isHighlighted && !isPII && (
                                     <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
                                   )}
                                 </div>

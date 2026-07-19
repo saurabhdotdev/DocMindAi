@@ -46,6 +46,7 @@ class ChatRequest(BaseModel):
     text: str
     question: str
     docId: Any = None
+    systemPrompt: Optional[str] = None
 
 class TranslateRequest(BaseModel):
     blocks: list
@@ -117,7 +118,7 @@ def analyze_resume(payload: ResumeRequest):
 @app.post("/v1/chat")
 def ask_document_question(payload: ChatRequest):
     try:
-        answer, sources = ai_engine.answer_question(payload.text, payload.question, payload.docId)
+        answer, sources = ai_engine.answer_question(payload.text, payload.question, payload.docId, payload.systemPrompt)
         return {
             "success": True,
             "answer": answer,
