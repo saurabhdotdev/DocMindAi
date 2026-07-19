@@ -84,7 +84,7 @@ export class OcrProcessor implements IJobProcessor {
     fetch(`${AI_SERVICE_URL}/v1/index`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ docId: documentId, text: extractedText }),
+      body: JSON.stringify({ docId: documentId, docName: document.name, text: extractedText }),
     }).catch(err => {
       logger.error(`[OcrProcessor] Qdrant indexing trigger failed: ${err.message}`);
     });

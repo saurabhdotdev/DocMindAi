@@ -125,11 +125,41 @@ export class DocumentController {
         return next(new AppError('Question is required', 400));
       }
 
-      const answer = await DocumentService.chatWithDocument(req.user.id, id, question.trim());
+      const { answer, sources } = await DocumentService.chatWithDocument(req.user.id, id, question.trim());
 
       return res.status(200).json({
         success: true,
         answer,
+        sources,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Multi-document Chat / Q&A
+  static async multiChat(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { docIds, question } = req.body;
+
+      if (!docIds || !Array.isArray(docIds) || docIds.length === 0) {
+        return next(new AppError('docIds array is required and must not be empty', 400));
+      }
+
+      if (!question || !question.trim()) {
+        return next(new AppError('Question is required', 400));
+      }
+
+      const { answer, sources } = await DocumentService.chatWithMultipleDocuments(req.user.id, docIds, question.trim());
+
+      return res.status(200).json({
+        success: true,
+        answer,
+        sources,
       });
     } catch (error) {
       return next(error);

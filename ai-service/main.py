@@ -16,6 +16,7 @@ if os.path.exists(".env"):
         print(f"Error loading .env file: {e}")
 
 from classifier import classifier
+from typing import Any
 import ai_engine
 
 app = FastAPI(
@@ -39,11 +40,12 @@ class ResumeRequest(BaseModel):
 class IndexRequest(BaseModel):
     docId: str
     text: str
+    docName: str = "Document"
 
 class ChatRequest(BaseModel):
     text: str
     question: str
-    docId: str = None
+    docId: Any = None
 
 @app.get("/health")
 def health_check():
@@ -97,10 +99,11 @@ def analyze_resume(payload: ResumeRequest):
 @app.post("/v1/chat")
 def ask_document_question(payload: ChatRequest):
     try:
-        result = ai_engine.answer_question(payload.text, payload.question, payload.docId)
+        answer, sources = ai_engine.answer_question(payload.text, payload.question, payload.docId)
         return {
             "success": True,
-            "answer": result
+            "answer": answer,
+            "sources": sources
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -108,7 +111,7 @@ def ask_document_question(payload: ChatRequest):
 @app.post("/v1/index")
 def index_document(payload: IndexRequest):
     try:
-        success = ai_engine.index_document_to_qdrant(payload.docId, payload.text)
+        success = ai_engine.index_document_to_qdrant(payload.docId, payload.text, payload.docName)
         return {
             "success": success,
             "message": "Document indexed successfully" if success else "Indexing skipped or failed"

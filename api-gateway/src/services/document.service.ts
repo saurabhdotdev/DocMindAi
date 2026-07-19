@@ -264,7 +264,66 @@ export class DocumentService {
         throw new Error(body.detail || 'AI Service chat returned failure');
       }
 
-      return body.answer;
+      return {
+        answer: body.answer,
+        sources: body.sources || [],
+      };
+    } catch (error: any) {
+      throw new AppError(`AI Q&A Error: ${error.message}`, 500);
+    }
+  }
+
+  // Ask questions across multiple documents simultaneously
+  static async chatWithMultipleDocuments(userId: string, documentIds: string[], question: string) {
+    const documents = await prisma.document.findMany({
+      where: {
+        id: { in: documentIds },
+        userId,
+      },
+      include: {
+        ocrResult: true,
+      },
+    });
+
+    if (documents.length === 0) {
+      throw new AppError('No matching documents found or access denied', 404);
+    }
+
+    // Build combined text fallback
+    let combinedText = '';
+    for (const doc of documents) {
+      const text = doc.ocrResult?.text || '';
+      if (text.trim()) {
+        combinedText += `\n\n--- Document: ${doc.name} ---\n${text}`;
+      }
+    }
+
+    if (!combinedText.trim()) {
+      throw new AppError('None of the selected documents have extracted OCR text yet.', 400);
+    }
+
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: combinedText, question, docId: documentIds }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /chat returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      if (!body.success) {
+        throw new Error(body.detail || 'AI Service chat returned failure');
+      }
+
+      return {
+        answer: body.answer,
+        sources: body.sources || [],
+      };
     } catch (error: any) {
       throw new AppError(`AI Q&A Error: ${error.message}`, 500);
     }

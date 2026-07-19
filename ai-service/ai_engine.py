@@ -53,7 +53,7 @@ def init_qdrant_collection():
         print(f"Error initializing Qdrant: {e}")
         return False
 
-def index_document_to_qdrant(doc_id: str, text: str) -> bool:
+def index_document_to_qdrant(doc_id: str, text: str, doc_name: str = "Document") -> bool:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("GEMINI_API_KEY not configured, skipping Qdrant indexing")
@@ -108,8 +108,10 @@ def index_document_to_qdrant(doc_id: str, text: str) -> bool:
                 "vector": embedding,
                 "payload": {
                     "doc_id": doc_id,
+                    "doc_name": doc_name,
                     "text": chunk,
-                    "index": idx
+                    "index": idx,
+                    "page": (idx // 2) + 1
                 }
             })
             
@@ -130,10 +132,10 @@ def index_document_to_qdrant(doc_id: str, text: str) -> bool:
         print(f"Error indexing document {doc_id} to Qdrant: {e}")
         return False
 
-def search_qdrant_context(doc_id: str, question: str, limit: int = 5) -> str:
+def search_qdrant_context(doc_id: Any, question: str, limit: int = 5) -> list:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return ""
+        return []
         
     try:
         genai.configure(api_key=api_key)
@@ -144,6 +146,12 @@ def search_qdrant_context(doc_id: str, question: str, limit: int = 5) -> str:
         )
         query_vector = res_embed['embedding']
         
+        # Build match filter condition dynamically for single or multiple document IDs
+        if isinstance(doc_id, list):
+            match_cond = {"any": doc_id}
+        else:
+            match_cond = {"value": doc_id}
+            
         search_url = "http://qdrant:6333/collections/document_segments/points/search"
         search_res = requests.post(
             search_url,
@@ -155,9 +163,7 @@ def search_qdrant_context(doc_id: str, question: str, limit: int = 5) -> str:
                     "must": [
                         {
                             "key": "doc_id",
-                            "match": {
-                                "value": doc_id
-                            }
+                            "match": match_cond
                         }
                     ]
                 }
@@ -166,21 +172,27 @@ def search_qdrant_context(doc_id: str, question: str, limit: int = 5) -> str:
         
         if search_res.status_code == 200:
             hits = search_res.json().get("result", [])
-            hits.sort(key=lambda x: x.get("payload", {}).get("index", 0))
+            # Sort hits by document and segment index to maintain reading order
+            hits.sort(key=lambda x: (x.get("payload", {}).get("doc_id", ""), x.get("payload", {}).get("index", 0)))
             
-            segments = []
+            sources = []
             for hit in hits:
                 payload = hit.get("payload", {})
                 text = payload.get("text", "")
                 if text:
-                    segments.append(text)
-            return "\n\n[...]\n\n".join(segments)
+                    sources.append({
+                        "docId": payload.get("doc_id", ""),
+                        "docName": payload.get("doc_name", "Document"),
+                        "text": text,
+                        "page": payload.get("page", 1)
+                    })
+            return sources
         else:
             print(f"Qdrant search failed: {search_res.text}")
-            return ""
+            return []
     except Exception as e:
         print(f"Error querying Qdrant: {e}")
-        return ""
+        return []
 
 def parse_ocr_layout(text: str):
     # Keep standard heuristic layout parsing to avoid UI breakage (coordinates needed)
@@ -491,9 +503,17 @@ def analyze_resume_profile(text: str):
         print(f"Error in analyze_resume_profile: {e}. Falling back.")
         return _fallback_analyze_resume(text)
 
-def _fallback_answer_question(text: str, question: str) -> str:
+def _fallback_answer_question(text: str, question: str, doc_id: Any = None) -> tuple:
+    doc_id_val = doc_id if isinstance(doc_id, str) else (doc_id[0] if isinstance(doc_id, list) and doc_id else "unknown")
+    default_sources = [{
+        "docId": doc_id_val,
+        "docName": "Document",
+        "text": text[:500] + "..." if text else "",
+        "page": 1
+    }]
+
     if not text or not question:
-        return "Please upload a document or ask a valid question."
+        return "Please upload a document or ask a valid question.", default_sources
         
     question_lower = question.lower()
     lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -507,8 +527,8 @@ def _fallback_answer_question(text: str, question: str) -> str:
             elif len(summary_lines) < 8 and len(line) > 30:
                 summary_lines.append(f"• {line}")
         if summary_lines:
-            return "Here is a quick summary of the document contents:\n\n" + "\n".join(summary_lines[:8])
-        return "I found the following document content:\n" + "\n".join(lines[:5])
+            return "Here is a quick summary of the document contents:\n\n" + "\n".join(summary_lines[:8]), default_sources
+        return "I found the following document content:\n" + "\n".join(lines[:5]), default_sources
         
     # 2. Contact details
     if any(k in question_lower for k in ["email", "phone", "contact", "address", "call", "reach"]):
@@ -520,7 +540,7 @@ def _fallback_answer_question(text: str, question: str) -> str:
         for phone in set(phones):
             contacts.append(f"Phone: {phone}")
         if contacts:
-            return "Here are the contact details found in the document:\n\n" + "\n".join(contacts)
+            return "Here are the contact details found in the document:\n\n" + "\n".join(contacts), default_sources
             
     # 3. Keyword matching fallback
     keywords = [w for w in re.findall(r'\w+', question_lower) if w not in ["what", "is", "the", "are", "in", "of", "for", "on", "with", "where", "how", "who", "whom", "whose", "why", "can", "you", "tell", "me", "about"]]
@@ -536,9 +556,9 @@ def _fallback_answer_question(text: str, question: str) -> str:
     
     if matched_lines:
         results = [f"• {line}" for _, line in matched_lines[:5]]
-        return f"Based on a local keyword scan for '{', '.join(keywords)}':\n\n" + "\n".join(results)
+        return f"Based on a local keyword scan for '{', '.join(keywords)}':\n\n" + "\n".join(results), default_sources
         
-    return "I couldn't find a direct answer to your question in the document. Please configure the `GROQ_API_KEY` in the environment variables to enable advanced AI-powered Q&A."
+    return "I couldn't find a direct answer to your question in the document. Please configure the `GROQ_API_KEY` in the environment variables to enable advanced AI-powered Q&A.", default_sources
 
 def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) -> str:
     if not text:
@@ -587,13 +607,13 @@ def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) ->
         
     return context
 
-def answer_question(text: str, question: str, doc_id: str = None) -> str:
+def answer_question(text: str, question: str, doc_id: Any = None) -> tuple:
     gemini_model = get_gemini_client()
     groq_client = get_groq_client()
     
     if not gemini_model and not groq_client:
         print("Neither Gemini nor Groq API Key found, falling back to local Q&A engine")
-        return _fallback_answer_question(text, question)
+        return _fallback_answer_question(text, question, doc_id)
         
     try:
         system_instructions = """
@@ -610,14 +630,25 @@ def answer_question(text: str, question: str, doc_id: str = None) -> str:
         """
         
         # Try to retrieve semantic vector search context from Qdrant first
-        semantic_context = ""
+        sources = []
         if doc_id and os.getenv("GEMINI_API_KEY"):
-            semantic_context = search_qdrant_context(doc_id, question)
+            sources = search_qdrant_context(doc_id, question)
+            
+        if sources:
+            context_to_use = "\n\n[...]\n\n".join([s["text"] for s in sources])
+        else:
+            # Fallback to local keyword RAG
+            context_to_use = filter_relevant_context(text, question, max_tokens=1500)
+            doc_id_val = doc_id if isinstance(doc_id, str) else (doc_id[0] if isinstance(doc_id, list) and doc_id else "unknown")
+            sources = [{
+                "docId": doc_id_val,
+                "docName": "Document",
+                "text": context_to_use[:500] + "..." if context_to_use else "",
+                "page": 1
+            }]
             
         if groq_client:
             try:
-                # Use Qdrant semantic context if available, else fall back to local keyword RAG
-                context_to_use = semantic_context if semantic_context else filter_relevant_context(text, question, max_tokens=1500)
                 prompt = f"""
                 Document Context:
                 ---
@@ -636,11 +667,10 @@ def answer_question(text: str, question: str, doc_id: str = None) -> str:
                     ],
                     temperature=0.3
                 )
-                return response.choices[0].message.content.strip()
+                return response.choices[0].message.content.strip(), sources
             except Exception as e:
                 print(f"Groq Q&A failed: {e}. Trying Gemini fallback...")
                 if gemini_model:
-                    context_to_use = semantic_context if semantic_context else (text[:100000] if len(text) > 100000 else text)
                     prompt = f"""
                     System Instructions:
                     {system_instructions}
@@ -656,11 +686,10 @@ def answer_question(text: str, question: str, doc_id: str = None) -> str:
                         prompt,
                         generation_config={"temperature": 0.3}
                     )
-                    return response.text.strip()
+                    return response.text.strip(), sources
                 else:
                     raise e
         elif gemini_model:
-            context_to_use = semantic_context if semantic_context else (text[:100000] if len(text) > 100000 else text)
             prompt = f"""
             System Instructions:
             {system_instructions}
@@ -676,7 +705,7 @@ def answer_question(text: str, question: str, doc_id: str = None) -> str:
                 prompt,
                 generation_config={"temperature": 0.3}
             )
-            return response.text.strip()
+            return response.text.strip(), sources
     except Exception as e:
         print(f"Error communicating with LLM provider: {e}. Falling back to local Q&A engine.")
-        return _fallback_answer_question(text, question)
+        return _fallback_answer_question(text, question, doc_id)
