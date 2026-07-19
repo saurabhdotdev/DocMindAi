@@ -76,8 +76,41 @@ export const startQueueWorker = () => {
           data: { status: JobStatus.COMPLETED },
         });
         logger.info(`All jobs done — Document [${documentId}] marked COMPLETED`);
+
+        // Send processing complete notification
+        try {
+          const doc = await prisma.document.findUnique({ where: { id: documentId } });
+          if (doc) {
+            const { createNotification } = require('../controllers/notification.controller');
+            await createNotification(
+              job.data.userId,
+              'OCR_FINISHED',
+              'Processing Complete',
+              `Your document "${doc.name}" is now ready for analysis.`,
+              { documentId }
+            );
+          }
+        } catch (_) {}
       } else {
         logger.info(`Job [${jobType}] done — ${remainingJobs} job(s) still running for Document [${documentId}]`);
+      }
+
+      // If classification finished, notify user of category
+      if (String(jobType) === 'CLASSIFICATION') {
+        try {
+          const doc = await prisma.document.findUnique({ where: { id: documentId } });
+          const classification = await prisma.documentClassification.findFirst({ where: { documentId } });
+          if (doc && classification) {
+            const { createNotification } = require('../controllers/notification.controller');
+            await createNotification(
+              job.data.userId,
+              'CONVERSION_COMPLETE',
+              'Document Classified',
+              `"${doc.name}" was classified as ${classification.label}.`,
+              { documentId }
+            );
+          }
+        } catch (_) {}
       }
 
       logger.info(`Successfully completed Job [${job.id}] - Type: ${jobType} for Document: ${documentId}`);
@@ -125,6 +158,21 @@ export const startQueueWorker = () => {
 
         await prisma.$transaction(dbUpdates);
         logger.info(`Recorded failure for Job [${job.id}] in database`);
+
+        // Send failure notification
+        try {
+          const doc = await prisma.document.findUnique({ where: { id: documentId } });
+          if (doc) {
+            const { createNotification } = require('../controllers/notification.controller');
+            await createNotification(
+              job.data.userId,
+              'OCR_FINISHED',
+              'Processing Failed',
+              `An error occurred while processing your document "${doc.name}": ${err.message}`,
+              { documentId }
+            );
+          }
+        } catch (_) {}
       } catch (dbErr: any) {
         logger.error(`Failed to record job failure in database: ${dbErr.message}`);
       }
