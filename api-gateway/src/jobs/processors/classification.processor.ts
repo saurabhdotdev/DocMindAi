@@ -25,9 +25,10 @@ async function extractTextFromFile(document: any, buffer: Buffer): Promise<strin
   let text = '';
   if (document.mimeType === 'application/pdf') {
     try {
-      const pdfParse = require('pdf-parse');
-      const data = await pdfParse(buffer);
-      text = data.text || '';
+      const { PDFParse } = require('pdf-parse');
+      const parser = new PDFParse({ data: buffer });
+      const pdfData = await parser.getText();
+      text = pdfData.text || '';
     } catch (e: any) {
       logger.error(`[ClassificationProcessor] pdf-parse error: ${e.message}`);
     }

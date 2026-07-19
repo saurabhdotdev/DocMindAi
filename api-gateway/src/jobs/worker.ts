@@ -40,37 +40,41 @@ export const startQueueWorker = () => {
         throw new Error(result.error || `Processor failed for job type: ${jobType}`);
       }
 
-      // 4. Update Database states to COMPLETED
-      // Retrieve the specific job log ID that was in processing
+      // 4. Update the specific JobLog to COMPLETED
       const jobLogs = await prisma.jobLog.findMany({
         where: { documentId, jobType, status: JobStatus.PROCESSING },
         orderBy: { updatedAt: 'desc' },
         take: 1,
       });
 
-      const dbUpdates: any[] = [];
-      
       if (jobLogs.length > 0) {
-        dbUpdates.push(
-          prisma.jobLog.update({
-            where: { id: jobLogs[0].id },
-            data: {
-              status: JobStatus.COMPLETED,
-              resultKey: result.resultKey || null,
-            },
-          })
-        );
+        await prisma.jobLog.update({
+          where: { id: jobLogs[0].id },
+          data: {
+            status: JobStatus.COMPLETED,
+            resultKey: result.resultKey || null,
+          },
+        });
       }
 
-      // Mark the document itself completed
-      dbUpdates.push(
-        prisma.document.update({
+      // Only mark document as COMPLETED when ALL its jobs are done (no PENDING or PROCESSING remaining)
+      const remainingJobs = await prisma.jobLog.count({
+        where: {
+          documentId,
+          status: { in: [JobStatus.PENDING, JobStatus.PROCESSING] },
+        },
+      });
+
+      if (remainingJobs === 0) {
+        await prisma.document.update({
           where: { id: documentId },
           data: { status: JobStatus.COMPLETED },
-        })
-      );
+        });
+        logger.info(`All jobs done — Document [${documentId}] marked COMPLETED`);
+      } else {
+        logger.info(`Job [${jobType}] done — ${remainingJobs} job(s) still running for Document [${documentId}]`);
+      }
 
-      await prisma.$transaction(dbUpdates);
       logger.info(`Successfully completed Job [${job.id}] - Type: ${jobType} for Document: ${documentId}`);
       return result;
     },

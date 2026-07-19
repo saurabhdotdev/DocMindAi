@@ -36,9 +36,10 @@ export class OcrProcessor implements IJobProcessor {
 
       if (document.mimeType === 'application/pdf') {
         try {
-          const pdfParse = require('pdf-parse');
-          const data = await pdfParse(fileBuffer);
-          extractedText = data.text || '';
+          const { PDFParse } = require('pdf-parse');
+          const parser = new PDFParse({ data: fileBuffer });
+          const pdfData = await parser.getText();
+          extractedText = pdfData.text || '';
         } catch (e: any) { logger.error(`pdf-parse error: ${e.message}`); }
       } else if (document.name.endsWith('.docx')) {
         try {
