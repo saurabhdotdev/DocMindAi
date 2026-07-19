@@ -25,6 +25,13 @@ export const Dashboard: React.FC = () => {
   const [shareEmail, setShareEmail] = useState('');
   const [shareFolderId, setShareFolderId] = useState<string | null>(null);
 
+  // Multi-document selection & merge states
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergedName, setMergedName] = useState('');
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+
   // Helper to map formats
   const getValidTargetFormats = (type: string): string[] => {
     const cleanType = type.toUpperCase();
@@ -161,6 +168,28 @@ export const Dashboard: React.FC = () => {
       setTimeout(() => setUploadError(null), 5000);
     },
   });
+
+  const handleMergeDocuments = async () => {
+    if (selectedDocIds.length < 2 || !mergedName.trim()) return;
+    setIsMerging(true);
+    setMergeError(null);
+    try {
+      const res = await api.post('/v1/documents/merge', {
+        documentIds: selectedDocIds,
+        name: mergedName.trim(),
+      });
+      if (res.data.success) {
+        setIsMergeModalOpen(false);
+        setSelectedDocIds([]);
+        setMergedName('');
+        queryClient.invalidateQueries({ queryKey: ['documents'] });
+      }
+    } catch (err: any) {
+      setMergeError(err.response?.data?.message || 'Merge failed. Please ensure all documents are PDFs.');
+    } finally {
+      setIsMerging(false);
+    }
+  };
 
   // Document delete mutation
   const deleteMutation = useMutation({
@@ -361,7 +390,17 @@ export const Dashboard: React.FC = () => {
                     return (
                       <div key={doc.id} className="py-5 first:pt-0 last:pb-0 flex flex-col gap-3">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3.5 overflow-hidden pr-4">
+                          <div className="flex items-center gap-3 overflow-hidden pr-4">
+                            <input
+                              type="checkbox"
+                              checked={selectedDocIds.includes(doc.id)}
+                              onChange={() => {
+                                setSelectedDocIds(prev =>
+                                  prev.includes(doc.id) ? prev.filter(id => id !== doc.id) : [...prev, doc.id]
+                                );
+                              }}
+                              className="w-3.5 h-3.5 rounded border-white/10 bg-white/5 text-brand-primary focus:ring-brand-primary shrink-0 accent-brand-primary cursor-pointer"
+                            />
                             <div 
                               onClick={() => navigate(`/documents/${doc.id}`)}
                               className="w-10 h-10 rounded-lg bg-brand-primary/10 border border-brand-primary/10 flex items-center justify-center shrink-0 cursor-pointer hover:bg-brand-primary/20 transition-all"
@@ -592,6 +631,80 @@ export const Dashboard: React.FC = () => {
                 className="glass-button-primary px-3.5 py-1.5 text-xs"
               >
                 Share Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Bar for Selected Documents */}
+      {selectedDocIds.length >= 2 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-brand-dark/95 border border-brand-primary/30 rounded-2xl px-6 py-4 shadow-2xl backdrop-blur-md flex items-center gap-6 animate-in slide-in-from-bottom-5 duration-200">
+          <span className="text-xs font-bold text-white">
+            📂 {selectedDocIds.length} document{selectedDocIds.length !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMergedName('merged_document.pdf');
+                setIsMergeModalOpen(true);
+                setMergeError(null);
+              }}
+              className="glass-button-primary px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5"
+            >
+              Merge Documents
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDocIds([])}
+              className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-semibold text-brand-textMuted hover:text-white transition-all"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Merge Documents Modal */}
+      {isMergeModalOpen && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-brand-dark/95 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-extrabold text-white">Merge Selected Documents</h3>
+            <p className="text-[10px] text-brand-textMuted">
+              This will merge the selected PDF documents page-by-page into a single document.
+            </p>
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block">
+                New Document Name
+              </label>
+              <input
+                type="text"
+                value={mergedName}
+                onChange={(e) => setMergedName(e.target.value)}
+                placeholder="merged_document.pdf"
+                className="glass-input text-xs w-full"
+              />
+            </div>
+            {mergeError && (
+              <p className="text-xs text-brand-error">{mergeError}</p>
+            )}
+            <div className="flex gap-2.5 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setIsMergeModalOpen(false)}
+                className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs text-brand-textMuted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!mergedName.trim() || isMerging}
+                onClick={handleMergeDocuments}
+                className="glass-button-primary px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 disabled:opacity-40"
+              >
+                {isMerging && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                {isMerging ? 'Merging...' : 'Merge'}
               </button>
             </div>
           </div>

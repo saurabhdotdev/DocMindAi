@@ -10,6 +10,8 @@ router.post('/upload', authenticateJWT, uploadMiddleware, DocumentController.upl
 router.get('/', authenticateJWT, DocumentController.list);
 router.post('/chat', authenticateJWT, DocumentController.multiChat);
 router.post('/compare', authenticateJWT, DocumentController.compare);
+router.post('/merge', authenticateJWT, DocumentController.merge);
+router.post('/:id/split', authenticateJWT, DocumentController.split);
 router.get('/:id', authenticateJWT, DocumentController.getById);
 router.post('/:id/convert', authenticateJWT, DocumentController.convert);
 router.post('/:id/chat', authenticateJWT, DocumentController.chat);

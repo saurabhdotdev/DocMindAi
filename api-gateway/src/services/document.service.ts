@@ -509,4 +509,146 @@ export class DocumentService {
       throw new AppError(`AI Podcast Error: ${error.message}`, 500);
     }
   }
+
+  // Merge multiple PDF documents into one new document
+  static async mergeDocuments(userId: string, documentIds: string[], name: string) {
+    if (!documentIds || documentIds.length < 2) {
+      throw new AppError('At least 2 documents are required to merge', 400);
+    }
+
+    const docs = await prisma.document.findMany({
+      where: { id: { in: documentIds }, userId },
+    });
+
+    if (docs.length !== documentIds.length) {
+      throw new AppError('One or more selected documents were not found or access denied', 404);
+    }
+
+    const nonPdfs = docs.filter(d => d.type !== 'PDF');
+    if (nonPdfs.length > 0) {
+      throw new AppError('Only PDF documents can be merged at this time', 400);
+    }
+
+    let finalName = name.trim();
+    if (!finalName.toLowerCase().endsWith('.pdf')) {
+      finalName += '.pdf';
+    }
+
+    const { PDFDocument } = require('pdf-lib');
+    const mergedPdf = await PDFDocument.create();
+
+    for (const docId of documentIds) {
+      const doc = docs.find(d => d.id === docId)!;
+      const buffer = await downloadFromStorage(doc.storageKey);
+      const pdf = await PDFDocument.load(buffer);
+      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      copiedPages.forEach((page: any) => mergedPdf.addPage(page));
+    }
+
+    const mergedBuffer = await mergedPdf.save();
+    const documentId = uuidv4();
+    const storageKey = `users/${userId}/${documentId}/${finalName}`;
+
+    await uploadToStorage(storageKey, Buffer.from(mergedBuffer), 'application/pdf');
+
+    const document = await prisma.document.create({
+      data: {
+        id: documentId,
+        userId,
+        name: finalName,
+        type: 'PDF',
+        size: mergedBuffer.length,
+        storageKey,
+        mimeType: 'application/pdf',
+        status: JobStatus.PENDING,
+      },
+    });
+
+    await addDocumentJob(document.id, userId, JobType.CLASSIFICATION, {});
+    return document;
+  }
+
+  // Split a PDF document into multiple documents by ranges
+  static async splitDocument(userId: string, id: string, rangesStr: string) {
+    const doc = await prisma.document.findFirst({
+      where: { id, userId },
+    });
+
+    if (!doc) {
+      throw new AppError('Document not found', 404);
+    }
+
+    if (doc.type !== 'PDF') {
+      throw new AppError('Only PDF documents can be split', 400);
+    }
+
+    const originalBuffer = await downloadFromStorage(doc.storageKey);
+    const { PDFDocument } = require('pdf-lib');
+    const originalPdf = await PDFDocument.load(originalBuffer);
+    const totalPages = originalPdf.getPageCount();
+
+    // Helper to parse page ranges e.g. "1-2, 3"
+    const parts = rangesStr.split(',').map(p => p.trim());
+    const parsedRanges: { start: number; end: number }[] = [];
+
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [startStr, endStr] = part.split('-');
+        const start = Math.max(1, parseInt(startStr, 10));
+        const end = Math.min(totalPages, parseInt(endStr, 10));
+        if (start <= end) parsedRanges.push({ start, end });
+      } else {
+        const page = parseInt(part, 10);
+        if (page >= 1 && page <= totalPages) {
+          parsedRanges.push({ start: page, end: page });
+        }
+      }
+    }
+
+    if (parsedRanges.length === 0) {
+      throw new AppError('No valid page ranges provided', 400);
+    }
+
+    const baseName = doc.name.substring(0, doc.name.lastIndexOf('.'));
+    const createdDocs = [];
+
+    for (let i = 0; i < parsedRanges.length; i++) {
+      const range = parsedRanges[i];
+      const splitPdf = await PDFDocument.create();
+      
+      const pageIndices = [];
+      for (let p = range.start - 1; p <= range.end - 1; p++) {
+        pageIndices.push(p);
+      }
+
+      const copiedPages = await splitPdf.copyPages(originalPdf, pageIndices);
+      copiedPages.forEach((page: any) => splitPdf.addPage(page));
+
+      const splitBuffer = await splitPdf.save();
+      const documentId = uuidv4();
+      const nameSuffix = range.start === range.end ? `_page_${range.start}` : `_pages_${range.start}-${range.end}`;
+      const splitName = `${baseName}${nameSuffix}.pdf`;
+      const storageKey = `users/${userId}/${documentId}/${splitName}`;
+
+      await uploadToStorage(storageKey, Buffer.from(splitBuffer), 'application/pdf');
+
+      const document = await prisma.document.create({
+        data: {
+          id: documentId,
+          userId,
+          name: splitName,
+          type: 'PDF',
+          size: splitBuffer.length,
+          storageKey,
+          mimeType: 'application/pdf',
+          status: JobStatus.PENDING,
+        },
+      });
+
+      await addDocumentJob(document.id, userId, JobType.CLASSIFICATION, {});
+      createdDocs.push(document);
+    }
+
+    return createdDocs;
+  }
 }

@@ -76,6 +76,12 @@ export const DocumentDetail: React.FC = () => {
   const [isUploadingVersion, setIsUploadingVersion] = useState(false);
   const [versionError, setVersionError] = useState<string | null>(null);
 
+  // Document Splitting states
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [splitRangesStr, setSplitRangesStr] = useState('');
+  const [isSplitting, setIsSplitting] = useState(false);
+  const [splitError, setSplitError] = useState<string | null>(null);
+
   // Fetch document versions
   const { data: versions = [], refetch: refetchVersions } = useQuery<DocumentVersion[]>({
     queryKey: ['versions', id],
@@ -256,6 +262,27 @@ export const DocumentDetail: React.FC = () => {
     }
   };
 
+  const handleSplitDocument = async () => {
+    if (!splitRangesStr.trim()) return;
+    setIsSplitting(true);
+    setSplitError(null);
+    try {
+      const res = await api.post(`/v1/documents/${id}/split`, {
+        rangesStr: splitRangesStr.trim(),
+      });
+      if (res.data.success) {
+        setIsSplitModalOpen(false);
+        setSplitRangesStr('');
+        alert('Document split successfully. New split documents are processing in your workspace!');
+        navigate('/dashboard');
+      }
+    } catch (err: any) {
+      setSplitError(err.response?.data?.message || 'Split failed. Please verify page ranges.');
+    } finally {
+      setIsSplitting(false);
+    }
+  };
+
   // Real AI chat querying the backend /v1/documents/:id/chat
   const sendChat = async () => {
     if (!chatInput.trim()) return;
@@ -330,14 +357,30 @@ export const DocumentDetail: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={handleDownload}
-          className="glass-button-primary text-xs py-2 flex items-center gap-1.5"
-          title="Download Original file"
-        >
-          <Download className="w-4 h-4" />
-          <span>Download</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {doc.type === 'PDF' && (
+            <button
+              onClick={() => {
+                setSplitRangesStr('');
+                setIsSplitModalOpen(true);
+                setSplitError(null);
+              }}
+              className="px-3.5 py-2 border border-brand-primary/30 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+              title="Split this PDF document"
+            >
+              <GitBranch className="w-4 h-4 animate-pulse" />
+              <span>Split PDF</span>
+            </button>
+          )}
+          <button
+            onClick={handleDownload}
+            className="glass-button-primary text-xs py-2 flex items-center gap-1.5"
+            title="Download Original file"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download</span>
+          </button>
+        </div>
       </header>
 
       {/* Main Split Layout */}
@@ -1002,6 +1045,51 @@ export const DocumentDetail: React.FC = () => {
         </div>
 
       </main>
+
+      {/* Split PDF Document Modal */}
+      {isSplitModalOpen && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-brand-dark/95 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-extrabold text-white">Split PDF Document</h3>
+            <p className="text-[10px] text-brand-textMuted leading-relaxed">
+              Enter page ranges or single page numbers separated by commas to extract into new PDF documents (e.g. <span className="font-mono text-white">1-2, 3, 4-6</span>).
+            </p>
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block">
+                Page Ranges
+              </label>
+              <input
+                type="text"
+                value={splitRangesStr}
+                onChange={(e) => setSplitRangesStr(e.target.value)}
+                placeholder="e.g. 1-2, 3, 4-5"
+                className="glass-input text-xs w-full"
+              />
+            </div>
+            {splitError && (
+              <p className="text-xs text-brand-error">{splitError}</p>
+            )}
+            <div className="flex gap-2.5 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setIsSplitModalOpen(false)}
+                className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs text-brand-textMuted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!splitRangesStr.trim() || isSplitting}
+                onClick={handleSplitDocument}
+                className="glass-button-primary px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 disabled:opacity-40"
+              >
+                {isSplitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                {isSplitting ? 'Splitting...' : 'Split PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 };

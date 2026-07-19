@@ -383,4 +383,57 @@ export class DocumentController {
       return next(error);
     }
   }
+
+  // Merge multiple PDF documents
+  static async merge(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { documentIds, name } = req.body;
+      if (!documentIds || !Array.isArray(documentIds) || documentIds.length < 2) {
+        return next(new AppError('At least 2 documentIds are required in array format', 400));
+      }
+      if (!name || !name.trim()) {
+        return next(new AppError('Merged document name is required', 400));
+      }
+
+      const document = await DocumentService.mergeDocuments(req.user.id, documentIds, name);
+
+      return res.status(201).json({
+        success: true,
+        message: 'Documents merged successfully and enqueued for processing',
+        data: document,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Split a PDF document into multiple documents
+  static async split(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { rangesStr } = req.body;
+
+      if (!rangesStr || !rangesStr.trim()) {
+        return next(new AppError('rangesStr parameter is required (e.g. "1-2, 3")', 400));
+      }
+
+      const documents = await DocumentService.splitDocument(req.user.id, id, rangesStr);
+
+      return res.status(201).json({
+        success: true,
+        message: 'Document split successfully',
+        data: documents,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }
