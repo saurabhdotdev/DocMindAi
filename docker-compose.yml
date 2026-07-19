@@ -98,7 +98,7 @@ services:
       - REDIS_PORT=6379
       - JWT_SECRET=docmind_jwt_secret_token_dev_only_change_in_prod
       - JWT_REFRESH_SECRET=docmind_jwt_refresh_token_dev_only_change_in_prod
-      - JWT_ACCESS_EXPIRATION=15m
+      - JWT_ACCESS_EXPIRATION=24h
       - JWT_REFRESH_EXPIRATION=7d
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
