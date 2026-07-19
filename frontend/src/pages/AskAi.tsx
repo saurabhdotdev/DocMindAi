@@ -50,7 +50,7 @@ export const AskAi: React.FC = () => {
   });
 
   // Fetch details of selected document
-  const { data: selectedDoc, isLoading: isDocDetailLoading } = useQuery({
+  const { data: selectedDoc } = useQuery({
     queryKey: ['document', selectedDocId],
     queryFn: async () => {
       if (!selectedDocId) return null;
