@@ -1,3 +1,8 @@
+import WebSocket from 'ws';
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocket as any;
+}
+
 import { Worker, Job } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { prisma } from '../config/prisma';

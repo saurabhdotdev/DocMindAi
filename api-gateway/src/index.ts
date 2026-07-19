@@ -2,6 +2,12 @@ import dotenv from 'dotenv';
 // Load environment variables before importing other files
 dotenv.config();
 
+import WebSocket from 'ws';
+// Polyfill global WebSocket for Supabase Realtime in older Node.js runtimes (Node < 22)
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocket as any;
+}
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
