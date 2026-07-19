@@ -48,5 +48,5 @@ COPY --from=builder /app/dist ./dist
 # Expose port
 EXPOSE 5000
 
-# Run database push and start the server
-CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
+# Run the server
+CMD ["node", "dist/index.js"]
