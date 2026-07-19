@@ -18,6 +18,71 @@ function sanitizeForPdfLib(text: string): string {
   return clean.split('').map(char => (char.charCodeAt(0) > 255 ? '' : char)).join('');
 }
 
+function reconstructParagraphs(text: string): string[] {
+  const rawLines = text.split('\n').map(l => l.trim());
+  const paragraphs: string[] = [];
+  let currentParagraph = '';
+
+  for (const line of rawLines) {
+    if (!line) {
+      if (currentParagraph) {
+        paragraphs.push(currentParagraph);
+        currentParagraph = '';
+      }
+      continue;
+    }
+
+    // Heuristic: check if this line is a heading
+    const isHeading = line.length < 45 && line === line.toUpperCase() && /^[A-Z0-9\s|,\-&.:'"]+$/.test(line);
+    // Heuristic: check if it looks like a list item
+    const isListItem = /^[•●\-\*\d+\.]\s/.test(line);
+
+    if (isHeading || isListItem) {
+      if (currentParagraph) {
+        paragraphs.push(currentParagraph);
+        currentParagraph = '';
+      }
+      paragraphs.push(line);
+      continue;
+    }
+
+    if (currentParagraph) {
+      const lastChar = currentParagraph.slice(-1);
+      const endsSentence = ['.', '!', '?'].includes(lastChar);
+      const isShortLine = currentParagraph.length < 50;
+
+      if (endsSentence && isShortLine) {
+        paragraphs.push(currentParagraph);
+        currentParagraph = line;
+      } else {
+        currentParagraph += ' ' + line;
+      }
+    } else {
+      currentParagraph = line;
+    }
+  }
+
+  if (currentParagraph) {
+    paragraphs.push(currentParagraph);
+  }
+
+  return paragraphs.map(p => p.trim()).filter(p => p.length > 0);
+}
+
+function getContentTypeForFormat(format: string): string {
+  switch (format.toUpperCase()) {
+    case 'PDF': return 'application/pdf';
+    case 'DOCX': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'PNG': return 'image/png';
+    case 'JPG': return 'image/jpeg';
+    case 'TXT': return 'text/plain';
+    case 'XML': return 'application/xml';
+    case 'KML': return 'application/vnd.google-earth.kml+xml';
+    case 'JSON': return 'application/json';
+    default: return 'text/plain';
+  }
+}
+
 
 export class ConversionProcessor implements IJobProcessor {
   async process(job: Job<DocumentJobPayload>): Promise<JobProcessorResult> {
@@ -46,12 +111,27 @@ export class ConversionProcessor implements IJobProcessor {
       logger.info(`[ConversionProcessor] Downloading original file: ${document.storageKey}`);
       const originalFileBuffer = await downloadFromStorage(document.storageKey);
 
+      // Fast-path: if original file format is the same as the target format, return it directly!
+      const originalExt = document.name.substring(document.name.lastIndexOf('.')).toLowerCase();
+      if (originalExt.replace('.', '').toUpperCase() === targetFormat) {
+        logger.info(`[ConversionProcessor] Fast-path: source and target format match (${targetFormat}), returning original file.`);
+        await uploadToStorage(outputKey, originalFileBuffer, getContentTypeForFormat(targetFormat));
+        
+        return {
+          success: true,
+          resultKey: outputKey,
+          data: {
+            convertedFormat: targetFormat,
+            originalFormat: document.type,
+          },
+        };
+      }
+
       // Simulate conversion computing delay
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // 3. Extract text from the source document based on file extension
       let extractedText = '';
-      const originalExt = document.name.substring(document.name.lastIndexOf('.')).toLowerCase();
 
       if (originalExt === '.pdf') {
         try {
@@ -74,6 +154,18 @@ export class ConversionProcessor implements IJobProcessor {
         }
       }
 
+      // If we couldn't extract text from the original file directly (e.g. it was an image or pdf-parse failed),
+      // check if we already have an OCRResult in the database
+      if (extractedText.trim().length === 0) {
+        logger.info(`[ConversionProcessor] Direct extraction empty. Querying OCRResult fallback in DB...`);
+        const ocr = await prisma.oCRResult.findUnique({
+          where: { documentId },
+        });
+        if (ocr && ocr.text) {
+          extractedText = ocr.text;
+        }
+      }
+
       // 4. Generate destination file content based on target format
       let contentBuffer: Buffer;
       let contentType = 'text/plain';
@@ -82,39 +174,36 @@ export class ConversionProcessor implements IJobProcessor {
         let paragraphs: Paragraph[] = [];
         
         if (extractedText.trim().length > 0) {
-          const lines = extractedText.split('\n');
-          paragraphs = lines
-            .map((line: string) => line.trim())
-            .filter((line: string) => line.length > 0)
-            .map((line: string) => {
-              // Heuristic: check if the line is short (< 35 chars) and all uppercase (likely a heading)
-              const isHeading = line.length < 35 && line === line.toUpperCase() && /^[A-Z\s|,\-&]+$/.test(line);
-              
-              if (isHeading) {
-                return new Paragraph({
-                  spacing: { before: 240, after: 120 }, // 12pt before, 6pt after spacing
-                  children: [
-                    new TextRun({
-                      text: line,
-                      bold: true,
-                      size: 26, // 13pt
-                      color: '1E293B', // Slate 800
-                    })
-                  ]
-                });
-              }
-
+          const reconstructed = reconstructParagraphs(extractedText);
+          paragraphs = reconstructed.map((line: string) => {
+            // Heuristic: check if the line is short (< 45 chars) and all uppercase (likely a heading)
+            const isHeading = line.length < 45 && line === line.toUpperCase() && /^[A-Z0-9\s|,\-&.:'"]+$/.test(line);
+            
+            if (isHeading) {
               return new Paragraph({
-                spacing: { after: 100 }, // 5pt spacing after regular paragraphs
+                spacing: { before: 240, after: 120 }, // 12pt before, 6pt after spacing
                 children: [
                   new TextRun({
                     text: line,
-                    size: 22, // 11pt
-                    color: '334155', // Slate 700
+                    bold: true,
+                    size: 26, // 13pt
+                    color: '1E293B', // Slate 800
                   })
                 ]
               });
+            }
+
+            return new Paragraph({
+              spacing: { after: 120 }, // 6pt spacing after regular paragraphs
+              children: [
+                new TextRun({
+                  text: line,
+                  size: 22, // 11pt
+                  color: '334155', // Slate 700
+                })
+              ]
             });
+          });
         }
         
         if (paragraphs.length === 0) {
@@ -150,8 +239,8 @@ export class ConversionProcessor implements IJobProcessor {
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
         const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
         
-        const lines = extractedText.trim().length > 0 
-          ? extractedText.split('\n').map(l => sanitizeForPdfLib(l.trim())).filter(l => l.length > 0)
+        const paragraphList = extractedText.trim().length > 0 
+          ? reconstructParagraphs(extractedText).map(p => sanitizeForPdfLib(p))
           : [`Converted version of ${document.name}`, 'Could not extract searchable text content from original file.'];
 
         let page = pdfDoc.addPage([600, 800]);
@@ -159,9 +248,9 @@ export class ConversionProcessor implements IJobProcessor {
         const lineSpacing = 14;
         const maxLength = 85;
 
-        for (const line of lines) {
-          // Heuristic: check if the line is short (< 35 chars) and all uppercase (likely a heading)
-          const isHeading = line.length < 35 && line === line.toUpperCase() && /^[A-Z\s|,\-&]+$/.test(line);
+        for (const line of paragraphList) {
+          // Heuristic: check if the line is short (< 45 chars) and all uppercase (likely a heading)
+          const isHeading = line.length < 45 && line === line.toUpperCase() && /^[A-Z0-9\s|,\-&.:'"]+$/.test(line);
 
           if (isHeading) {
             y -= 20; // Extra spacing before section headings
@@ -208,9 +297,11 @@ export class ConversionProcessor implements IJobProcessor {
               page.drawText(currentLine, { x: 50, y, size: 9.5, font, color: rgb(0.2, 0.25, 0.3) });
               y -= lineSpacing;
             }
+            y -= 6; // Paragraph gap
           } else {
             page.drawText(line, { x: 50, y, size: 9.5, font, color: rgb(0.2, 0.25, 0.3) });
             y -= lineSpacing;
+            y -= 6; // Paragraph gap
           }
         }
         
