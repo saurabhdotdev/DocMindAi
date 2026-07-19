@@ -347,3 +347,12 @@ model AgentProfile {
 
   @@map("agent_profiles")
 }
+
+model PublicLimit {
+  id        String   @id @default(uuid()) @db.Uuid
+  ipAddress String   @unique
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("public_limits")
+}
