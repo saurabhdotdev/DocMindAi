@@ -460,7 +460,7 @@ def analyze_resume_profile(text: str):
         if groq_client:
             try:
                 response = groq_client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="llama-3.3-70b-versatile",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.2,
                     response_format={"type": "json_object"}
@@ -661,7 +661,7 @@ def answer_question(text: str, question: str, doc_id: Any = None, custom_system_
                 Answer:
                 """
                 response = groq_client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system_instructions},
                         {"role": "user", "content": prompt}
@@ -940,7 +940,7 @@ def simulate_agent_debate(text: str, question: str) -> list:
         if groq_client:
             try:
                 response = groq_client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="llama-3.3-70b-versatile",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     response_format={"type": "json_object"}
@@ -1011,7 +1011,7 @@ def generate_podcast_summary(text: str) -> dict:
         if groq_client:
             try:
                 response = groq_client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="llama-3.3-70b-versatile",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     response_format={"type": "json_object"}
