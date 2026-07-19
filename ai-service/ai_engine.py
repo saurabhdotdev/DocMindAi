@@ -1049,3 +1049,61 @@ def generate_podcast_summary(text: str) -> dict:
                 { "host": "Brian", "text": f"Yes Alex, it looks like a comprehensive file, but my system summary generator is running in fallback mode right now: {e}." }
             ]
         }
+
+def optimize_agent_prompt(description: str) -> str:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not gemini_model and not groq_client:
+        print("Neither Gemini nor Groq API Key found, returning fallback simplified optimized prompt")
+        return f"You are a specialized assistant whose persona is defined as follows: {description}. Provide helpful, structured, and accurate responses."
+        
+    prompt = f"""
+    You are an expert Prompt Engineer and AI System Architect.
+    The user wants to create a custom AI assistant/agent persona. 
+    They have provided a brief description of the goal:
+    "{description}"
+    
+    Your task is to write a highly optimized, professional, and detailed SYSTEM PROMPT for this AI agent.
+    
+    Instructions:
+    1. Define the persona's role, background, and tone (e.g. professional, encouraging, clinical, formal).
+    2. Outline specific capabilities and step-by-step reasoning steps the agent must take.
+    3. Define strict constraints (what they should NOT do, how they should handle missing information).
+    4. Specify formatting preferences (e.g., using bullet points, bold highlights, clear sections, or tables where appropriate).
+    5. Write the final system prompt directly as the output. Do not include introductory text like "Here is your system prompt:" or markdown fences. Return ONLY the final system prompt instructions.
+    
+    Final System Prompt:
+    """
+    
+    try:
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.4
+                )
+                content = response.choices[0].message.content
+            except Exception as e:
+                print(f"Groq optimize prompt failed: {e}. Trying Gemini fallback...")
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={"temperature": 0.4}
+                    )
+                    content = response.text.strip()
+                else:
+                    raise e
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.4}
+            )
+            content = response.text.strip()
+            
+        return content.strip()
+    except Exception as e:
+        print(f"Error in optimize_agent_prompt: {e}")
+        return f"You are a specialized assistant whose persona is defined as follows: {description}. Provide helpful, structured, and accurate responses."

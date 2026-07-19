@@ -16,7 +16,7 @@ if os.path.exists(".env"):
         print(f"Error loading .env file: {e}")
 
 from classifier import classifier
-from typing import Any
+from typing import Any, Optional
 import ai_engine
 
 app = FastAPI(
@@ -65,6 +65,9 @@ class DebateRequest(BaseModel):
 
 class PodcastRequest(BaseModel):
     text: str
+
+class OptimizePromptRequest(BaseModel):
+    description: str
 
 @app.get("/health")
 def health_check():
@@ -186,6 +189,17 @@ def generate_podcast(payload: PodcastRequest):
         return {
             "success": True,
             "podcast": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/agents/optimize-prompt")
+def optimize_agent_prompt(payload: OptimizePromptRequest):
+    try:
+        optimized = ai_engine.optimize_agent_prompt(payload.description)
+        return {
+            "success": True,
+            "optimizedPrompt": optimized
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

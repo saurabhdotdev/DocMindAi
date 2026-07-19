@@ -88,4 +88,43 @@ export class AgentController {
       return next(error);
     }
   }
+
+  // AI Optimize System Prompt
+  static async optimizePrompt(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { description } = req.body;
+
+      if (!description || !description.trim()) {
+        return next(new AppError('Description is required for optimization', 400));
+      }
+
+      const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+      const response = await fetch(`${AI_SERVICE_URL}/v1/agents/optimize-prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: description.trim() }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI Service /optimize-prompt returned status ${response.status}`);
+      }
+
+      const body: any = await response.json();
+      if (!body.success) {
+        throw new Error(body.message || 'AI Service optimize prompt returned failure');
+      }
+
+      return res.status(200).json({
+        success: true,
+        optimizedPrompt: body.optimizedPrompt,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

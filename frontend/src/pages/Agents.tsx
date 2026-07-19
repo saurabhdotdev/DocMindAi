@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
 import {
-  Plus, Trash2, RefreshCw, Bot
+  Plus, Trash2, RefreshCw, Bot, Sparkles
 } from 'lucide-react';
 
 export const Agents: React.FC = () => {
@@ -12,6 +12,27 @@ export const Agents: React.FC = () => {
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [avatar, setAvatar] = useState('🤖');
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  const handleOptimizePrompt = async () => {
+    if (!systemPrompt.trim()) {
+      alert('Please enter a brief description of what you want the agent to do first in the prompt box!');
+      return;
+    }
+    setIsOptimizing(true);
+    try {
+      const res = await api.post('/v1/agents/optimize-prompt', {
+        description: systemPrompt,
+      });
+      if (res.data.success && res.data.optimizedPrompt) {
+        setSystemPrompt(res.data.optimizedPrompt);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to optimize prompt. Please try again.');
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
 
   // Fetch custom agent profiles list
   const { data: agents = [], isLoading } = useQuery({
@@ -178,13 +199,31 @@ export const Agents: React.FC = () => {
 
               {/* System prompt */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted">System Instruction Prompt</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted">
+                    System Instruction Prompt
+                  </label>
+                  <button
+                    type="button"
+                    disabled={isOptimizing || !systemPrompt.trim()}
+                    onClick={handleOptimizePrompt}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-brand-primary/30 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary hover:text-white text-[10px] font-extrabold uppercase tracking-wider transition-all disabled:opacity-40"
+                    title="Optimize this description into a professional system prompt using AI"
+                  >
+                    {isOptimizing ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-brand-primary animate-pulse" />
+                    )}
+                    <span>{isOptimizing ? 'Optimizing...' : 'AI Optimize Prompt'}</span>
+                  </button>
+                </div>
                 <textarea
                   required
-                  rows={4}
+                  rows={5}
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
-                  placeholder="e.g. You are a senior legal specialist. Auditing compliance and finding potential liabilities or missing clauses inside contract clauses..."
+                  placeholder="Type a brief idea of what you want the agent to do, then click 'AI Optimize Prompt' to expand it into professional instructions!"
                   className="glass-input text-xs w-full resize-none leading-relaxed"
                 />
               </div>
