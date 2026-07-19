@@ -10,6 +10,7 @@ router.post('/upload', authenticateJWT, uploadMiddleware, DocumentController.upl
 router.get('/', authenticateJWT, DocumentController.list);
 router.get('/:id', authenticateJWT, DocumentController.getById);
 router.post('/:id/convert', authenticateJWT, DocumentController.convert);
+router.post('/:id/chat', authenticateJWT, DocumentController.chat);
 router.delete('/:id', authenticateJWT, DocumentController.delete);
 
 export default router;

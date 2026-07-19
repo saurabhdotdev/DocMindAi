@@ -1,6 +1,20 @@
+import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+# Load .env file manually if it exists in the current directory
+if os.path.exists(".env"):
+    try:
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ[key.strip()] = val.strip()
+    except Exception as e:
+        print(f"Error loading .env file: {e}")
+
 from classifier import classifier
 import ai_engine
 
@@ -21,6 +35,10 @@ class EntityRequest(BaseModel):
 
 class ResumeRequest(BaseModel):
     text: str
+
+class ChatRequest(BaseModel):
+    text: str
+    question: str
 
 @app.get("/health")
 def health_check():
@@ -67,6 +85,17 @@ def analyze_resume(payload: ResumeRequest):
         return {
             "success": True,
             "analysis": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/chat")
+def ask_document_question(payload: ChatRequest):
+    try:
+        result = ai_engine.answer_question(payload.text, payload.question)
+        return {
+            "success": True,
+            "answer": result
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -110,4 +110,29 @@ export class DocumentController {
       return next(error);
     }
   }
+
+  // Chat / Q&A with document text
+  static async chat(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { question } = req.body;
+
+      if (!question || !question.trim()) {
+        return next(new AppError('Question is required', 400));
+      }
+
+      const answer = await DocumentService.chatWithDocument(req.user.id, id, question.trim());
+
+      return res.status(200).json({
+        success: true,
+        answer,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

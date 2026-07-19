@@ -32,6 +32,8 @@ services:
         value: docmind-uploads
       - key: AI_SERVICE_URL
         value: https://docmind-ai-service.onrender.com
+      - key: GROQ_API_KEY
+        sync: false
 
   # AI Service - Python / FastAPI
   - type: web
@@ -44,3 +46,5 @@ services:
     envVars:
       - key: PORT
         value: 8000
+      - key: GROQ_API_KEY
+        sync: false

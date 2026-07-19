@@ -82,13 +82,7 @@ export class ClassificationProcessor implements IJobProcessor {
       create: { documentId, label: category, confidence },
     });
 
-    // 5. Chain: enqueue OCR + Entity Extraction after classification
-    await prisma.jobLog.createMany({
-      data: [
-        { documentId, jobType: JobType.OCR, status: JobStatus.PENDING },
-        { documentId, jobType: JobType.ENTITY_EXTRACTION, status: JobStatus.PENDING },
-      ],
-    });
+    // 5. Chain: enqueue OCR + Entity Extraction after classification (automatically creates PENDING JobLogs)
     await addDocumentJob(documentId, userId, JobType.OCR, { extractedText });
     await addDocumentJob(documentId, userId, JobType.ENTITY_EXTRACTION, { extractedText });
 

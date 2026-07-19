@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -44,7 +44,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333 && echo -e 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'healthz check passed'"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -77,6 +77,7 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
+      - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       - qdrant
 
@@ -103,6 +104,7 @@ services:
       - AWS_REGION=us-east-1
       - S3_BUCKET_NAME=docmind-uploads
       - S3_ENDPOINT=http://localstack:4566
+      - PUBLIC_S3_ENDPOINT=http://localhost:4566
       - S3_FORCE_PATH_STYLE=true
       - QDRANT_URL=http://qdrant:6333
       - AI_SERVICE_URL=http://ai-service:8000
@@ -124,7 +126,7 @@ services:
       - /app/node_modules
     ports:
       - "5173:5173"
-    command: npm run dev -- --host
+    command: sh -c "npm ci && npm run dev -- --host"
     depends_on:
       - api-gateway
 

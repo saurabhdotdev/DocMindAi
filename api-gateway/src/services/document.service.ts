@@ -37,16 +37,7 @@ export class DocumentService {
         },
       });
 
-      // 3. Create job log entry for automatic classification
-      await prisma.jobLog.create({
-        data: {
-          documentId: document.id,
-          jobType: JobType.CLASSIFICATION,
-          status: JobStatus.PENDING,
-        },
-      });
-
-      // 4. Enqueue the classification job
+      // 3. Enqueue the classification job (automatically creates PENDING JobLog)
       await addDocumentJob(document.id, userId, JobType.CLASSIFICATION, {});
 
       return document;
@@ -235,5 +226,47 @@ export class DocumentService {
     });
 
     return jobResult;
+  }
+
+  // Ask questions about document content using AI Service Q&A
+  static async chatWithDocument(userId: string, documentId: string, question: string) {
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, userId },
+      include: {
+        ocrResult: true,
+      },
+    });
+
+    if (!document) {
+      throw new AppError('Document not found or access denied', 404);
+    }
+
+    const ocrText = document.ocrResult?.text || '';
+    if (!ocrText.trim()) {
+      throw new AppError('This document has no extracted text. Please wait for OCR or upload a text-readable file.', 400);
+    }
+
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: ocrText, question }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /chat returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      if (!body.success) {
+        throw new Error(body.detail || 'AI Service chat returned failure');
+      }
+
+      return body.answer;
+    } catch (error: any) {
+      throw new AppError(`AI Q&A Error: ${error.message}`, 500);
+    }
   }
 }
