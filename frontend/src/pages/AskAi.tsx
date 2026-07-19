@@ -40,6 +40,13 @@ export const AskAi: React.FC = () => {
       const res = await api.get('/v1/documents?page=1&limit=50');
       return res.data.data.documents;
     },
+    refetchInterval: (query) => {
+      const docs = query.state.data as any;
+      if (docs && Array.isArray(docs) && docs.some((doc: any) => doc.status === 'PENDING' || doc.status === 'PROCESSING')) {
+        return 3000; // Poll every 3 seconds if active jobs are running
+      }
+      return false;
+    }
   });
 
   // Fetch details of selected document
