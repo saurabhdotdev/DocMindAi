@@ -80,6 +80,15 @@ export class OcrProcessor implements IJobProcessor {
       });
     }
 
+    // Trigger Qdrant indexing asynchronously
+    fetch(`${AI_SERVICE_URL}/v1/index`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: documentId, text: extractedText }),
+    }).catch(err => {
+      logger.error(`[OcrProcessor] Qdrant indexing trigger failed: ${err.message}`);
+    });
+
     return {
       success: true,
       data: { pagesCount: layoutData.pagesCount, blocksCount: layoutData.blocks?.length || 0 },

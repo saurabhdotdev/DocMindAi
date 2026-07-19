@@ -252,7 +252,7 @@ export class DocumentService {
       const res = await fetch(`${AI_SERVICE_URL}/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ocrText, question }),
+        body: JSON.stringify({ text: ocrText, question, docId: documentId }),
       });
 
       if (!res.ok) {

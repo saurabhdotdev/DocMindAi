@@ -3,6 +3,7 @@ import os
 import json
 from groq import Groq
 import google.generativeai as genai
+import requests
 
 def get_groq_client():
     api_key = os.getenv("GROQ_API_KEY")
@@ -25,6 +26,161 @@ def get_gemini_client():
     except Exception as e:
         print(f"Error initializing Gemini client: {e}")
         return None
+
+def init_qdrant_collection():
+    qdrant_url = "http://qdrant:6333/collections/document_segments"
+    try:
+        res = requests.get(qdrant_url)
+        if res.status_code == 200:
+            return True
+            
+        create_res = requests.put(
+            qdrant_url,
+            json={
+                "vectors": {
+                    "size": 768,
+                    "distance": "Cosine"
+                }
+            }
+        )
+        if create_res.status_code in [200, 201]:
+            print("Successfully created Qdrant collection: document_segments")
+            return True
+        else:
+            print(f"Failed to create Qdrant collection: {create_res.text}")
+            return False
+    except Exception as e:
+        print(f"Error initializing Qdrant: {e}")
+        return False
+
+def index_document_to_qdrant(doc_id: str, text: str) -> bool:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("GEMINI_API_KEY not configured, skipping Qdrant indexing")
+        return False
+        
+    if not text or not text.strip():
+        return False
+        
+    try:
+        if not init_qdrant_collection():
+            return False
+            
+        paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+        chunks = []
+        current_chunk = []
+        current_len = 0
+        
+        for p in paragraphs:
+            if current_len + len(p) > 1000:
+                if current_chunk:
+                    chunks.append("\n".join(current_chunk))
+                current_chunk = [p]
+                current_len = len(p)
+            else:
+                current_chunk.append(p)
+                current_len += len(p) + 1
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+            
+        if not chunks:
+            return False
+            
+        genai.configure(api_key=api_key)
+        
+        batch_size = 20
+        all_embeddings = []
+        for i in range(0, len(chunks), batch_size):
+            batch_chunks = chunks[i:i+batch_size]
+            result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=batch_chunks,
+                task_type="retrieval_document"
+            )
+            all_embeddings.extend(result['embedding'])
+            
+        import uuid
+        points = []
+        for idx, (chunk, embedding) in enumerate(zip(chunks, all_embeddings)):
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{doc_id}_{idx}"))
+            points.append({
+                "id": point_id,
+                "vector": embedding,
+                "payload": {
+                    "doc_id": doc_id,
+                    "text": chunk,
+                    "index": idx
+                }
+            })
+            
+        qdrant_points_url = "http://qdrant:6333/collections/document_segments/points"
+        for i in range(0, len(points), 100):
+            batch_points = points[i:i+100]
+            upsert_res = requests.put(
+                qdrant_points_url,
+                json={"points": batch_points}
+            )
+            if upsert_res.status_code != 200:
+                print(f"Failed to upsert points to Qdrant: {upsert_res.text}")
+                return False
+                
+        print(f"Successfully indexed document {doc_id} to Qdrant ({len(points)} segments)")
+        return True
+    except Exception as e:
+        print(f"Error indexing document {doc_id} to Qdrant: {e}")
+        return False
+
+def search_qdrant_context(doc_id: str, question: str, limit: int = 5) -> str:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return ""
+        
+    try:
+        genai.configure(api_key=api_key)
+        res_embed = genai.embed_content(
+            model="models/text-embedding-004",
+            content=question,
+            task_type="retrieval_query"
+        )
+        query_vector = res_embed['embedding']
+        
+        search_url = "http://qdrant:6333/collections/document_segments/points/search"
+        search_res = requests.post(
+            search_url,
+            json={
+                "vector": query_vector,
+                "limit": limit,
+                "with_payload": True,
+                "filter": {
+                    "must": [
+                        {
+                            "key": "doc_id",
+                            "match": {
+                                "value": doc_id
+                            }
+                        }
+                    ]
+                }
+            }
+        )
+        
+        if search_res.status_code == 200:
+            hits = search_res.json().get("result", [])
+            hits.sort(key=lambda x: x.get("payload", {}).get("index", 0))
+            
+            segments = []
+            for hit in hits:
+                payload = hit.get("payload", {})
+                text = payload.get("text", "")
+                if text:
+                    segments.append(text)
+            return "\n\n[...]\n\n".join(segments)
+        else:
+            print(f"Qdrant search failed: {search_res.text}")
+            return ""
+    except Exception as e:
+        print(f"Error querying Qdrant: {e}")
+        return ""
 
 def parse_ocr_layout(text: str):
     # Keep standard heuristic layout parsing to avoid UI breakage (coordinates needed)
@@ -431,7 +587,7 @@ def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) ->
         
     return context
 
-def answer_question(text: str, question: str) -> str:
+def answer_question(text: str, question: str, doc_id: str = None) -> str:
     gemini_model = get_gemini_client()
     groq_client = get_groq_client()
     
@@ -453,13 +609,19 @@ def answer_question(text: str, question: str) -> str:
         6. Speak in a natural, helpful, and direct tone. Keep core facts grounded in the provided document details, but bring in external insights/rankings/standard evaluations for colleges/companies when requested.
         """
         
+        # Try to retrieve semantic vector search context from Qdrant first
+        semantic_context = ""
+        if doc_id and os.getenv("GEMINI_API_KEY"):
+            semantic_context = search_qdrant_context(doc_id, question)
+            
         if groq_client:
             try:
-                filtered_context = filter_relevant_context(text, question, max_tokens=1500)
+                # Use Qdrant semantic context if available, else fall back to local keyword RAG
+                context_to_use = semantic_context if semantic_context else filter_relevant_context(text, question, max_tokens=1500)
                 prompt = f"""
-                Document Context (Filtered Snippets):
+                Document Context:
                 ---
-                {filtered_context}
+                {context_to_use}
                 ---
                 
                 Question: {question}
@@ -478,14 +640,14 @@ def answer_question(text: str, question: str) -> str:
             except Exception as e:
                 print(f"Groq Q&A failed: {e}. Trying Gemini fallback...")
                 if gemini_model:
-                    gemini_context = text[:100000] if len(text) > 100000 else text
+                    context_to_use = semantic_context if semantic_context else (text[:100000] if len(text) > 100000 else text)
                     prompt = f"""
                     System Instructions:
                     {system_instructions}
                     
                     Document Context:
                     ---
-                    {gemini_context}
+                    {context_to_use}
                     ---
                     
                     Question: {question}
@@ -498,14 +660,14 @@ def answer_question(text: str, question: str) -> str:
                 else:
                     raise e
         elif gemini_model:
-            gemini_context = text[:100000] if len(text) > 100000 else text
+            context_to_use = semantic_context if semantic_context else (text[:100000] if len(text) > 100000 else text)
             prompt = f"""
             System Instructions:
             {system_instructions}
             
             Document Context:
             ---
-            {gemini_context}
+            {context_to_use}
             ---
             
             Question: {question}

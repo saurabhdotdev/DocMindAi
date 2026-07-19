@@ -36,9 +36,14 @@ class EntityRequest(BaseModel):
 class ResumeRequest(BaseModel):
     text: str
 
+class IndexRequest(BaseModel):
+    docId: str
+    text: str
+
 class ChatRequest(BaseModel):
     text: str
     question: str
+    docId: str = None
 
 @app.get("/health")
 def health_check():
@@ -92,10 +97,21 @@ def analyze_resume(payload: ResumeRequest):
 @app.post("/v1/chat")
 def ask_document_question(payload: ChatRequest):
     try:
-        result = ai_engine.answer_question(payload.text, payload.question)
+        result = ai_engine.answer_question(payload.text, payload.question, payload.docId)
         return {
             "success": True,
             "answer": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/index")
+def index_document(payload: IndexRequest):
+    try:
+        success = ai_engine.index_document_to_qdrant(payload.docId, payload.text)
+        return {
+            "success": success,
+            "message": "Document indexed successfully" if success else "Indexing skipped or failed"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
