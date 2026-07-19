@@ -299,6 +299,7 @@ export const AskAi: React.FC = () => {
                     return (
                       <button
                         key={doc.id}
+                        type="button"
                         onClick={() => handleSelectDoc(doc.id, doc.name)}
                         className={`w-full text-left p-3 rounded-xl border text-xs transition-all flex items-center justify-between gap-3 ${
                           isSelected
@@ -311,7 +312,7 @@ export const AskAi: React.FC = () => {
                             type="checkbox"
                             checked={isSelected}
                             readOnly
-                            className="w-3.5 h-3.5 rounded border-white/10 bg-brand-dark/50 text-brand-primary focus:ring-brand-primary shrink-0 accent-brand-primary cursor-pointer"
+                            className="w-3.5 h-3.5 rounded border-white/10 bg-brand-dark/50 text-brand-primary focus:ring-brand-primary shrink-0 accent-brand-primary cursor-pointer pointer-events-none"
                           />
                           <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-brand-primary' : 'text-brand-textMuted'}`} />
                           <span className="truncate block font-medium">{doc.name}</span>
