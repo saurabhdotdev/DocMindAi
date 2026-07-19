@@ -15,9 +15,11 @@ interface Source {
 }
 
 interface Message {
-  role: 'user' | 'assistant' | 'leo' | 'sarah' | 'mike';
+  role: 'user' | 'assistant' | 'leo' | 'sarah' | 'mike' | 'custom_agent';
   content: string;
   sources?: Source[];
+  agentName?: string;
+  agentAvatar?: string;
 }
 
 export const AskAi: React.FC = () => {
@@ -37,6 +39,7 @@ export const AskAi: React.FC = () => {
 
   // Agent Debate state
   const [isDebateMode, setIsDebateMode] = useState(false);
+  const [selectedDebateAgentIds, setSelectedDebateAgentIds] = useState<string[]>([]);
 
   // GDPR Redaction and Custom Agent states
   const [isRedactedMode, setIsRedactedMode] = useState(false);
@@ -253,17 +256,25 @@ export const AskAi: React.FC = () => {
         // Multi-Agent Debate mode API route
         res = await api.post(`/v1/documents/${selectedDocIds[0]}/debate`, {
           question: messageText,
+          agentIds: selectedDebateAgentIds,
         });
         if (res.data.success) {
           const debateDialog = res.data.data;
           const mappedLines: Message[] = debateDialog.map((d: any) => {
-            let role: 'leo' | 'sarah' | 'mike' = 'leo';
-            if (d.agent.includes('HR')) role = 'sarah';
-            if (d.agent.includes('Analyst')) role = 'mike';
-            return {
-              role,
-              content: d.message,
-            };
+            if (d.avatar === '👨‍💻' || d.agent?.includes('Tech Lead')) {
+              return { role: 'leo', content: d.message };
+            } else if (d.avatar === '👩‍💼' || d.agent?.includes('HR')) {
+              return { role: 'sarah', content: d.message };
+            } else if (d.avatar === '📊' || d.agent?.includes('Analyst')) {
+              return { role: 'mike', content: d.message };
+            } else {
+              return {
+                role: 'custom_agent',
+                agentName: d.agent,
+                agentAvatar: d.avatar || '🤖',
+                content: d.message,
+              };
+            }
           });
           setChatMessages((prev) => [...prev, ...mappedLines]);
         }
@@ -595,6 +606,47 @@ export const AskAi: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Custom debate personas selection panel */}
+                {isDebateMode && customAgents.length > 0 && (
+                  <div className="px-6 py-3 border-b border-white/5 bg-white/[0.01] shrink-0 animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted block">
+                        Select Panel Personas (Max 3. Defaults to System panel: Leo, Sarah, Mike)
+                      </span>
+                      <div className="flex gap-2 flex-wrap">
+                        {customAgents.map((agent: any) => {
+                          const isChecked = selectedDebateAgentIds.includes(agent.id);
+                          return (
+                            <button
+                              key={agent.id}
+                              type="button"
+                              onClick={() => {
+                                if (isChecked) {
+                                  setSelectedDebateAgentIds(prev => prev.filter(id => id !== agent.id));
+                                } else {
+                                  if (selectedDebateAgentIds.length >= 3) {
+                                    alert('You can select a maximum of 3 custom agents to participate in the panel discussion!');
+                                    return;
+                                  }
+                                  setSelectedDebateAgentIds(prev => [...prev, agent.id]);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${
+                                isChecked
+                                  ? 'bg-brand-primary/20 border-brand-primary/40 text-white shadow-sm ring-1 ring-brand-primary/30'
+                                  : 'bg-brand-dark border-white/5 text-brand-textMuted hover:border-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span>{agent.avatar}</span>
+                              <span className="font-semibold">{agent.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Chat Message List */}
                 <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
                   {chatMessages.map((msg, i) => (
@@ -609,6 +661,8 @@ export const AskAi: React.FC = () => {
                             ? 'bg-brand-secondary/10 border-brand-secondary/20'
                             : msg.role === 'mike'
                             ? 'bg-brand-success/10 border-brand-success/20'
+                            : msg.role === 'custom_agent'
+                            ? 'bg-brand-primary/10 border-brand-primary/20'
                             : 'bg-white/5 border-white/5'
                         }`}>
                           {msg.role === 'user' ? (
@@ -619,6 +673,8 @@ export const AskAi: React.FC = () => {
                             <span className="text-xs">👩‍💼</span>
                           ) : msg.role === 'mike' ? (
                             <span className="text-xs">📊</span>
+                          ) : msg.role === 'custom_agent' ? (
+                            <span className="text-xs">{msg.agentAvatar || '🤖'}</span>
                           ) : (
                             <Bot className="w-3.5 h-3.5 text-brand-textMuted" />
                           )}
@@ -632,11 +688,18 @@ export const AskAi: React.FC = () => {
                             ? 'bg-brand-secondary/10 border border-brand-secondary/20 text-brand-text rounded-tl-sm'
                             : msg.role === 'mike'
                             ? 'bg-brand-success/10 border border-brand-success/20 text-brand-text rounded-tl-sm'
+                            : msg.role === 'custom_agent'
+                            ? 'bg-brand-primary/10 border border-brand-primary/20 text-brand-text rounded-tl-sm'
                             : 'bg-white/5 text-brand-text rounded-tl-sm border border-white/[0.02]'
                         }`}>
                           {(msg.role === 'leo' || msg.role === 'sarah' || msg.role === 'mike') && (
                             <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
                               {msg.role === 'leo' ? 'Leo (Tech Lead)' : msg.role === 'sarah' ? 'Sarah (HR Director)' : 'Mike (Business Analyst)'}
+                            </span>
+                          )}
+                          {msg.role === 'custom_agent' && (
+                            <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
+                              {msg.agentName}
                             </span>
                           )}
                           {msg.content}

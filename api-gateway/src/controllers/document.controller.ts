@@ -290,13 +290,13 @@ export class DocumentController {
       }
 
       const { id } = req.params;
-      const { question } = req.body;
+      const { question, agentIds } = req.body;
 
       if (!question || !question.trim()) {
         return next(new AppError('Question topic is required for debate', 400));
       }
 
-      const result = await DocumentService.debateDocument(req.user.id, id, question.trim());
+      const result = await DocumentService.debateDocument(req.user.id, id, question.trim(), agentIds);
 
       return res.status(200).json({
         success: true,

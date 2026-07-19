@@ -447,7 +447,7 @@ export class DocumentService {
   }
 
   // Multi-agent document debate simulation
-  static async debateDocument(userId: string, id: string, question: string) {
+  static async debateDocument(userId: string, id: string, question: string, agentIds?: string[]) {
     const document = await prisma.document.findFirst({
       where: { id, userId },
       include: { ocrResult: true },
@@ -457,6 +457,13 @@ export class DocumentService {
       throw new AppError('Document layout text not found or access denied', 404);
     }
 
+    let customAgentsList: any[] = [];
+    if (agentIds && agentIds.length > 0) {
+      customAgentsList = await prisma.agentProfile.findMany({
+        where: { id: { in: agentIds }, userId },
+      });
+    }
+
     const text = document.ocrResult.text;
     const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
@@ -464,7 +471,15 @@ export class DocumentService {
       const res = await fetch(`${AI_SERVICE_URL}/v1/debate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, question }),
+        body: JSON.stringify({
+          text,
+          question,
+          agents: customAgentsList.map(a => ({
+            name: a.name,
+            systemPrompt: a.systemPrompt,
+            avatar: a.avatar,
+          })),
+        }),
       });
 
       if (!res.ok) {

@@ -910,30 +910,59 @@ def transcribe_multimedia(storage_key: str, doc_name: str) -> dict:
             except Exception as rm_err:
                 print(f"Failed to remove temp file: {rm_err}")
 
-def simulate_agent_debate(text: str, question: str) -> list:
+def simulate_agent_debate(text: str, question: str, custom_agents: list = None) -> list:
     gemini_model = get_gemini_client()
     groq_client = get_groq_client()
     
-    prompt = f"""
-    You are a simulator of three professional characters in a discussion panel:
-    1. Leo (Tech Lead): Highly technical, critical of technology selections, focuses on complexity and programming skills.
-    2. Sarah (HR Director): Focuses on team fit, training costs, candidate experience, human dynamics, work timelines.
-    3. Mike (Business Analyst): Focuses on commercial viability, cost-efficiency, business return, project risks.
-    
-    They are debating the following document text and question:
-    Document Context: {text[:4000]}
-    Question/Topic: {question}
-    
-    Simulate a 3-turn debate where each character gives their unique professional opinion.
-    Return ONLY a JSON list of dialogue objects with this format:
-    [
-      {{ "agent": "Leo (Tech Lead)", "message": "Leo's opinion..." }},
-      {{ "agent": "Sarah (HR Director)", "message": "Sarah's opinion..." }},
-      {{ "agent": "Mike (Business Analyst)", "message": "Mike's opinion..." }}
-    ]
-    
-    Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
-    """
+    if custom_agents and len(custom_agents) > 0:
+        # Build dynamic prompt with custom agents
+        agent_descriptions = ""
+        agent_json_format = []
+        for idx, a in enumerate(custom_agents):
+            name = a.get("name", f"Agent {idx+1}")
+            avatar = a.get("avatar", "🤖")
+            prompt_instr = a.get("systemPrompt", "Be a helpful assistant.")
+            agent_descriptions += f"{idx+1}. {name} (Avatar: {avatar}): {prompt_instr}\n"
+            agent_json_format.append(f'  {{ "agent": "{name}", "avatar": "{avatar}", "message": "{name}\'s opinion..." }}')
+            
+        json_format_str = "[\n" + ",\n".join(agent_json_format) + "\n]"
+        
+        prompt = f"""
+        You are a simulator of a panel discussion featuring the following custom agents:
+        {agent_descriptions}
+        
+        They are discussing/debating the following document text and question:
+        Document Context: {text[:4000]}
+        Question/Topic: {question}
+        
+        Simulate a collaborative discussion where each agent gives their professional opinion based on their custom instructions.
+        Return ONLY a JSON list of dialogue objects matching this exact format:
+        {json_format_str}
+        
+        Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
+        """
+    else:
+        # Fallback to system defaults (Leo, Sarah, Mike)
+        prompt = f"""
+        You are a simulator of three professional characters in a discussion panel:
+        1. Leo (Tech Lead) (Avatar: 👨‍💻): Highly technical, critical of technology selections, focuses on complexity and programming skills.
+        2. Sarah (HR Director) (Avatar: 👩‍💼): Focuses on team fit, training costs, candidate experience, human dynamics, work timelines.
+        3. Mike (Business Analyst) (Avatar: 📊): Focuses on commercial viability, cost-efficiency, business return, project risks.
+        
+        They are debating the following document text and question:
+        Document Context: {text[:4000]}
+        Question/Topic: {question}
+        
+        Simulate a 3-turn debate where each character gives their unique professional opinion.
+        Return ONLY a JSON list of dialogue objects with this format:
+        [
+          {{ "agent": "Leo (Tech Lead)", "avatar": "👨‍💻", "message": "Leo's opinion..." }},
+          {{ "agent": "Sarah (HR Director)", "avatar": "👩‍💼", "message": "Sarah's opinion..." }},
+          {{ "agent": "Mike (Business Analyst)", "avatar": "📊", "message": "Mike's opinion..." }}
+        ]
+        
+        Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
+        """
     
     try:
         content = ""

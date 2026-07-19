@@ -62,6 +62,7 @@ class TranscribeRequest(BaseModel):
 class DebateRequest(BaseModel):
     text: str
     question: str
+    agents: Optional[list] = None
 
 class PodcastRequest(BaseModel):
     text: str
@@ -174,7 +175,7 @@ def transcribe_multimedia_file(payload: TranscribeRequest):
 @app.post("/v1/debate")
 def simulate_debate(payload: DebateRequest):
     try:
-        result = ai_engine.simulate_agent_debate(payload.text, payload.question)
+        result = ai_engine.simulate_agent_debate(payload.text, payload.question, payload.agents)
         return {
             "success": True,
             "debate": result
