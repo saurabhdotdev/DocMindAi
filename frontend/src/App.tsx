@@ -8,6 +8,8 @@ import { DocumentDetail } from './pages/DocumentDetail';
 import { AskAi } from './pages/AskAi';
 import { Workflows } from './pages/Workflows';
 import { Agents } from './pages/Agents';
+import { Analytics } from './pages/Analytics';
+import { Team } from './pages/Team';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +107,26 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <Agents />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Analytics Page */}
+          <Route
+            path="/analytics"
+            element={
+              <ProtectedRoute>
+                <Analytics />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Team Management Page */}
+          <Route
+            path="/team"
+            element={
+              <ProtectedRoute>
+                <Team />
               </ProtectedRoute>
             }
           />

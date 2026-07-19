@@ -6,6 +6,11 @@ import folderRoutes from './folder.routes';
 import workflowRoutes from './workflow.routes';
 import agentRoutes from './agent.routes';
 import publicRoutes from './public.routes';
+import analyticsRoutes from './analytics.routes';
+import organizationRoutes from './organization.routes';
+import notificationRoutes from './notification.routes';
+import searchRoutes from './search.routes';
+import versionRoutes from './version.routes';
 import { prisma } from '../config/prisma';
 import { AppError } from '../middleware/errorHandler';
 
@@ -38,5 +43,10 @@ router.use(`${API_PREFIX}/folders`, folderRoutes);
 router.use(`${API_PREFIX}/workflows`, workflowRoutes);
 router.use(`${API_PREFIX}/agents`, agentRoutes);
 router.use(`${API_PREFIX}/public`, publicRoutes);
+router.use(`${API_PREFIX}/analytics`, analyticsRoutes);
+router.use(`${API_PREFIX}/organizations`, organizationRoutes);
+router.use(`${API_PREFIX}/notifications`, notificationRoutes);
+router.use(`${API_PREFIX}/search`, searchRoutes);
+router.use(`${API_PREFIX}/documents/:id/versions`, versionRoutes);
 
 export default router;

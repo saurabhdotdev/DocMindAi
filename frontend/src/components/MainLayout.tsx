@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api, logoutUser } from '../lib/api';
 import {
-  FolderOpen, HardDrive, Shield, Sparkles, LogOut, RefreshCw, User as UserIcon
+  FolderOpen, HardDrive, Shield, Sparkles, LogOut, RefreshCw, User as UserIcon, Search, BarChart3, Users
 } from 'lucide-react';
+import { SearchModal } from './SearchModal';
+import { NotificationBell } from './NotificationDropdown';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -13,6 +15,7 @@ interface MainLayoutProps {
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Fetch logged-in user profile details
   const { data: userProfile, isLoading: isUserLoading } = useQuery({
@@ -54,6 +57,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <span className="text-[10px] text-brand-textMuted uppercase tracking-wider">Enterprise Suite</span>
             </div>
           </div>
+
+          {/* Global Search Shortcut */}
+          <button
+            onClick={() => setIsSearchOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg mb-2 border border-white/5 bg-white/[0.02] text-brand-textMuted hover:text-white hover:bg-white/5 hover:border-white/10 transition-all text-sm"
+          >
+            <Search className="w-4 h-4" />
+            <span className="flex-1 text-left">Search documents...</span>
+            <kbd className="text-[10px] border border-white/10 rounded px-1.5 py-0.5 font-mono">⌘K</kbd>
+          </button>
 
           {/* Navigation Links */}
           <nav className="space-y-1.5">
@@ -108,6 +121,28 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <UserIcon className={`w-4 h-4 ${location.pathname.startsWith('/agents') ? 'text-brand-primary' : ''}`} />
               <span>Agent Hub</span>
             </button>
+            <button
+              onClick={() => navigate('/analytics')}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg font-medium text-sm transition-all text-left ${
+                location.pathname.startsWith('/analytics')
+                  ? 'bg-white/5 text-white'
+                  : 'text-brand-textMuted hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              <BarChart3 className={`w-4 h-4 ${location.pathname.startsWith('/analytics') ? 'text-brand-primary' : ''}`} />
+              <span>Analytics</span>
+            </button>
+            <button
+              onClick={() => navigate('/team')}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg font-medium text-sm transition-all text-left ${
+                location.pathname.startsWith('/team')
+                  ? 'bg-white/5 text-white'
+                  : 'text-brand-textMuted hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              <Users className={`w-4 h-4 ${location.pathname.startsWith('/team') ? 'text-brand-primary' : ''}`} />
+              <span>Team</span>
+            </button>
           </nav>
         </div>
 
@@ -137,8 +172,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
       {/* Main Workspace content wrapper */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar with notification bell */}
+        <div className="flex items-center justify-end gap-2 px-6 py-3 border-b border-white/5 bg-white/[0.01] shrink-0">
+          <NotificationBell />
+        </div>
         {children}
       </div>
+
+      {/* Global Search Modal */}
+      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
     </div>
   );
 };

@@ -6,17 +6,18 @@ import { MainLayout } from '../components/MainLayout';
 import {
   ArrowLeft, FileText, RefreshCw, Tag,
   Brain, Search, Download, AlertCircle, MessageSquare,
-  Hash, Mail, Phone, Building2, Clock, Send, User, Bot, Volume2, Play, Pause
+  Hash, Mail, Phone, Building2, Clock, Send, User, Bot, Volume2, Play, Pause, GitBranch, UploadCloud
 } from 'lucide-react';
 
 // ─── Tabs ───────────────────────────────────────────────────
-type Tab = 'overview' | 'ocr' | 'entities' | 'podcast';
+type Tab = 'overview' | 'ocr' | 'entities' | 'podcast' | 'versions';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <FileText className="w-4 h-4" /> },
   { id: 'ocr', label: 'Extracted Text & Layout', icon: <Brain className="w-4 h-4" /> },
   { id: 'entities', label: 'Entities', icon: <Search className="w-4 h-4" /> },
   { id: 'podcast', label: 'AI Podcast Summary', icon: <Volume2 className="w-4 h-4" /> },
+  { id: 'versions', label: 'Versions', icon: <GitBranch className="w-4 h-4" /> },
 ];
 
 // ─── Entity badge colours ─────────────────────────────────
@@ -41,6 +42,18 @@ const entityIcon = (cat: string) => {
   }
 };
 
+interface DocumentVersion {
+  id: string;
+  documentId: string;
+  versionNumber: number;
+  storageKey: string;
+  size: number;
+  mimeType: string;
+  uploadedBy: string;
+  createdAt: string;
+  downloadUrl: string;
+}
+
 // ─── Chat message type ───────────────────────────────────
 interface ChatMsg { role: 'user' | 'assistant'; content: string }
 
@@ -57,6 +70,20 @@ export const DocumentDetail: React.FC = () => {
   
   // OCR Bounding Box states
   const [hoveredBlockIdx, setHoveredBlockIdx] = useState<number | null>(null);
+
+  // Document Versioning states
+  const [versionFile, setVersionFile] = useState<File | null>(null);
+  const [isUploadingVersion, setIsUploadingVersion] = useState(false);
+  const [versionError, setVersionError] = useState<string | null>(null);
+
+  // Fetch document versions
+  const { data: versions = [], refetch: refetchVersions } = useQuery<DocumentVersion[]>({
+    queryKey: ['versions', id],
+    queryFn: async () => {
+      const res = await api.get(`/v1/documents/${id}/versions`);
+      return res.data.data;
+    },
+  });
 
   // Inline Canvas Editor states
   const [isEditingBlock, setIsEditingBlock] = useState<number | null>(null);
@@ -202,6 +229,30 @@ export const DocumentDetail: React.FC = () => {
       alert(err.response?.data?.message || err.message || 'Saving failed.');
     } finally {
       setIsOcrSaving(false);
+    }
+  };
+
+  const handleUploadVersion = async () => {
+    if (!versionFile) return;
+    setIsUploadingVersion(true);
+    setVersionError(null);
+
+    const formData = new FormData();
+    formData.append('file', versionFile);
+
+    try {
+      const res = await api.post(`/v1/documents/${id}/versions`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data.success) {
+        setVersionFile(null);
+        refetchVersions();
+        refetch(); // Document goes to PENDING, triggers auto-refresh loop
+      }
+    } catch (err: any) {
+      setVersionError(err.response?.data?.message || 'Version upload failed.');
+    } finally {
+      setIsUploadingVersion(false);
     }
   };
 
@@ -798,6 +849,90 @@ export const DocumentDetail: React.FC = () => {
 
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ── VERSIONS TAB ── */}
+            {activeTab === 'versions' && (
+              <div className="space-y-6">
+                {/* Upload version panel */}
+                <div className="glass-panel border border-white/5 rounded-2xl p-6 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <UploadCloud className="w-5 h-5 text-brand-primary" />
+                    <h3 className="text-sm font-bold text-white">Upload New Version</h3>
+                  </div>
+                  <p className="text-xs text-brand-textMuted leading-relaxed">
+                    Uploading a new file will automatically run the AI pipeline (OCR extraction, entity tagging, podcast synthesis) over the new content while preserving version history.
+                  </p>
+
+                  <div className="flex gap-3">
+                    <input
+                      type="file"
+                      id="version-file-input"
+                      className="hidden"
+                      onChange={(e) => e.target.files?.[0] && setVersionFile(e.target.files[0])}
+                    />
+                    <button
+                      onClick={() => document.getElementById('version-file-input')?.click()}
+                      className="flex-1 py-2 px-3 border border-white/10 hover:border-white/20 rounded-lg text-xs font-semibold text-brand-textMuted hover:text-white transition-all text-center truncate"
+                    >
+                      {versionFile ? versionFile.name : 'Choose File...'}
+                    </button>
+                    <button
+                      onClick={handleUploadVersion}
+                      disabled={!versionFile || isUploadingVersion}
+                      className="glass-button-primary px-5 text-xs font-bold disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                      {isUploadingVersion && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                      {isUploadingVersion ? 'Uploading...' : 'Upload'}
+                    </button>
+                  </div>
+                  {versionError && (
+                    <p className="text-xs text-brand-error">{versionError}</p>
+                  )}
+                </div>
+
+                {/* Versions list */}
+                <div className="glass-panel border border-white/5 rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-white/5">
+                    <h3 className="text-sm font-bold text-white">Version History</h3>
+                  </div>
+                  <div className="divide-y divide-white/[0.03]">
+                    {versions.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-brand-textMuted">
+                        No previous versions uploaded.
+                      </div>
+                    ) : (
+                      versions.map((ver) => {
+                        const isLatest = ver.versionNumber === Math.max(...versions.map((v) => v.versionNumber));
+                        return (
+                          <div key={ver.id} className="p-4 flex items-center justify-between hover:bg-white/[0.01] transition-all">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white">Version {ver.versionNumber}</span>
+                                {isLatest && (
+                                  <span className="px-1.5 py-0.5 rounded bg-brand-success/15 border border-brand-success/30 text-[9px] text-brand-success font-bold">
+                                    Current Active
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-brand-textMuted block">
+                                Uploaded {new Date(ver.createdAt).toLocaleString()} · {(ver.size / 1024).toFixed(1)} KB
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => window.open(ver.downloadUrl, '_blank')}
+                              className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 border border-white/10 rounded-lg text-brand-textMuted hover:text-white hover:bg-white/5 transition-all font-semibold"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Download
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

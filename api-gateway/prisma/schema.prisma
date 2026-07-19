@@ -68,6 +68,7 @@ model User {
   workflows         Workflow[]
   annotations       Annotation[]
   agentProfiles     AgentProfile[]
+  orgMemberships    OrganizationMember[]
 
   @@map("users")
 }
@@ -144,6 +145,7 @@ model Document {
   folderId       String?                 @db.Uuid
   folder         Folder?                 @relation(fields: [folderId], references: [id], onDelete: SetNull)
   annotations    Annotation[]
+  versions       DocumentVersion[]
 
   @@map("documents")
 }
@@ -355,4 +357,66 @@ model PublicLimit {
   updatedAt DateTime @updatedAt
 
   @@map("public_limits")
+}
+
+enum OrgRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model Organization {
+  id        String               @id @default(uuid()) @db.Uuid
+  name      String
+  ownerId   String               @db.Uuid
+  createdAt DateTime             @default(now())
+
+  members   OrganizationMember[]
+  invitations Invitation[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  userId         String       @db.Uuid
+  role           OrgRole      @default(VIEWER)
+  joinedAt       DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_members")
+}
+
+model Invitation {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  email          String
+  role           OrgRole      @default(VIEWER)
+  token          String       @unique @default(uuid())
+  accepted       Boolean      @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("invitations")
+}
+
+model DocumentVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  documentId    String   @db.Uuid
+  versionNumber Int
+  storageKey    String
+  size          Int
+  mimeType      String
+  uploadedBy    String   @db.Uuid
+  createdAt     DateTime @default(now())
+
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_versions")
 }
