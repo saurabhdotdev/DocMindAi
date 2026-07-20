@@ -47,6 +47,7 @@ class ChatRequest(BaseModel):
     question: str
     docId: Any = None
     systemPrompt: Optional[str] = None
+    history: Optional[list] = None
 
 class TranslateRequest(BaseModel):
     blocks: list
@@ -69,6 +70,9 @@ class PodcastRequest(BaseModel):
 
 class OptimizePromptRequest(BaseModel):
     description: str
+
+class ActionItemsRequest(BaseModel):
+    text: str
 
 @app.get("/health")
 def health_check():
@@ -122,7 +126,7 @@ def analyze_resume(payload: ResumeRequest):
 @app.post("/v1/chat")
 def ask_document_question(payload: ChatRequest):
     try:
-        answer, sources = ai_engine.answer_question(payload.text, payload.question, payload.docId, payload.systemPrompt)
+        answer, sources = ai_engine.answer_question(payload.text, payload.question, payload.docId, payload.systemPrompt, payload.history)
         return {
             "success": True,
             "answer": answer,
@@ -130,7 +134,19 @@ def ask_document_question(payload: ChatRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+class GenerateTitleRequest(BaseModel):
+    question: str
 
+@app.post("/v1/chat/generate-title")
+def generate_title(payload: GenerateTitleRequest):
+    try:
+        title = ai_engine.generate_chat_title(payload.question)
+        return {
+            "success": True,
+            "title": title
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @app.post("/v1/index")
 def index_document(payload: IndexRequest):
     try:
@@ -201,6 +217,17 @@ def optimize_agent_prompt(payload: OptimizePromptRequest):
         return {
             "success": True,
             "optimizedPrompt": optimized
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/action-items")
+def extract_action_items(payload: ActionItemsRequest):
+    try:
+        result = ai_engine.extract_action_items(payload.text)
+        return {
+            "success": True,
+            "actionItems": result
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

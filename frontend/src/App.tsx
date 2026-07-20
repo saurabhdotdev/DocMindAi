@@ -10,6 +10,7 @@ import { Workflows } from './pages/Workflows';
 import { Agents } from './pages/Agents';
 import { Analytics } from './pages/Analytics';
 import { Team } from './pages/Team';
+import { Storage } from './pages/Storage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -87,6 +88,16 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <DocumentDetail />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Storage System Page */}
+          <Route
+            path="/storage"
+            element={
+              <ProtectedRoute>
+                <Storage />
               </ProtectedRoute>
             }
           />

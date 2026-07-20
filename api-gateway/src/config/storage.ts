@@ -23,7 +23,11 @@ export const getSupabaseAdmin = (): SupabaseClient => {
   return supabaseAdmin;
 };
 
+let isBucketInitialized = false;
+
 export const initializeBucket = async () => {
+  if (isBucketInitialized) return;
+
   if (isUsingSupabase) {
     try {
       logger.info(`Checking Supabase Storage bucket "${STORAGE_BUCKET}"...`);
@@ -37,16 +41,19 @@ export const initializeBucket = async () => {
       } else {
         logger.info(`Supabase Storage bucket "${STORAGE_BUCKET}" already exists.`);
       }
+      isBucketInitialized = true;
     } catch (error: any) {
-      logger.error(`Error initializing Supabase Storage: ${error.message}`);
-      // Don't throw — allow app to start even if storage init fails
+      logger.error(`Error initializing Supabase Storage: ${error.message}. Retrying in 5 seconds...`);
+      setTimeout(initializeBucket, 5000);
     }
   } else {
     logger.info('Supabase URL/Service Key not set. Falling back to LocalStack S3 Storage.');
     try {
       await initializeS3Bucket();
+      isBucketInitialized = true;
     } catch (err: any) {
-      logger.error(`Failed to initialize fallback LocalStack S3: ${err.message}`);
+      logger.error(`Failed to initialize fallback LocalStack S3: ${err.message}. Retrying in 5 seconds...`);
+      setTimeout(initializeBucket, 5000);
     }
   }
 };

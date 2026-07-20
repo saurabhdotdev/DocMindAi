@@ -93,4 +93,48 @@ export class ChatController {
       return next(error);
     }
   }
+
+  // Delete a chat session
+  static async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      await ChatService.deleteChatSession(req.user.id, id);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Chat session deleted successfully',
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Rename a chat session
+  static async rename(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const { title } = req.body;
+
+      if (!title || !title.trim()) {
+        return next(new AppError('Title is required', 400));
+      }
+
+      const session = await ChatService.renameChatSession(req.user.id, id, title.trim());
+
+      return res.status(200).json({
+        success: true,
+        data: session,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

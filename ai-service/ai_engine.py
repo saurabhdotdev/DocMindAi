@@ -608,7 +608,58 @@ def filter_relevant_context(text: str, question: str, max_tokens: int = 1500) ->
         
     return context
 
-def answer_question(text: str, question: str, doc_id: Any = None, custom_system_prompt: str = None) -> tuple:
+def rewrite_query_with_history(history: list, question: str) -> str:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    if not gemini_model and not groq_client:
+        return question
+
+    history_str = ""
+    for turn in history[-5:]:  # Last 5 turns for efficiency
+        role = "User" if turn.get("role") == "user" else "Assistant"
+        content = turn.get("content", "")
+        history_str += f"{role}: {content}\n"
+
+    prompt = f"""
+    Given the following conversation history and a follow-up question, rewrite the follow-up question to be a standalone search query that can be used for semantic document search.
+    Do NOT answer the question. Just return the rewritten question itself.
+    If the question is already a standalone question or does not need rewriting, return it exactly as-is.
+
+    Conversation History:
+    {history_str}
+
+    Follow-up Question: {question}
+
+    Standalone Search Query:
+    """
+
+    try:
+        if groq_client:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are a precise query rewriter. Return only the rewritten standalone question, nothing else."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1
+            )
+            rewritten = response.choices[0].message.content.strip()
+            print(f"Rewritten query (Groq): '{question}' -> '{rewritten}'")
+            return rewritten
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.1}
+            )
+            rewritten = response.text.strip()
+            print(f"Rewritten query (Gemini): '{question}' -> '{rewritten}'")
+            return rewritten
+    except Exception as e:
+        print(f"Error rewriting query: {e}. Using original question.")
+
+    return question
+
+def answer_question(text: str, question: str, doc_id: Any = None, custom_system_prompt: str = None, history: list = None) -> tuple:
     gemini_model = get_gemini_client()
     groq_client = get_groq_client()
     
@@ -619,35 +670,58 @@ def answer_question(text: str, question: str, doc_id: Any = None, custom_system_
     try:
         system_instructions = custom_system_prompt if custom_system_prompt else """
         You are a highly intelligent, semantic AI assistant helping a user analyze, extract, and query details from a document.
-        You will be provided with the document text context and a user's question.
+        You will be provided with the document text context, recent conversation history, and a user's latest question.
         
         Instructions:
         1. Answer the user's question clearly, concisely, and accurately based on the provided document context.
-        2. Be flexible and use semantic reasoning. If the user asks a question using synonyms, shorthand, or abbreviations (e.g. "where working" or "education" or "experience"), interpret their intent intelligently using the context.
-        3. If the user asks general or meta-questions about the document (e.g. "what is important in this doc", "summarize", "give key highlights"), analyze the text and provide a helpful response.
-        4. If the document is a resume, CV, or professional profile, and the user asks for an evaluation (e.g. "is he good", "should we hire", "rate them", "how is the college", "is that college good"), you are explicitly instructed to use your external general knowledge to evaluate the quality, reputation, and prestige of the universities/colleges (e.g. PICT Pune is widely known as a top-tier premier engineering college in Maharashtra/India; IITs/NITs/IISc are elite institutes; Ivy League, etc.), company reputations, industry tools/frameworks, and research publication impact (e.g. Scopus-indexed). Provide a detailed, professional, and insightful rating or comparison to help the user make hiring decisions.
-        5. If the document context contains absolutely no relevant information to answer the question, state "I couldn't find the answer in the document."
-        6. Speak in a natural, helpful, and direct tone. Keep core facts grounded in the provided document details, but bring in external insights/rankings/standard evaluations for colleges/companies when requested.
+        2. DYNAMIC FORMATTING RULE: Evaluate the user's query intent to determine the best visual structure:
+           - Specific Factual/Estimate Queries: If the user is asking for a specific number, estimate, definition, or singular fact, output a direct, clean paragraph explanation. Append the page reference at the end of the text (e.g., "The estimate is 45% (Page 12)").
+           - Pointwise/Collection/Comparison Queries: If the user asks to list multiple items, compare points, list details, or outlines collections (e.g., "what are these 5", "compare these resumes"), you MUST automatically format the answer in a structured Markdown Table (using standard pipe notation `| Header 1 | Header 2 |`) with clear headers, rather than a raw bulleted list.
+           - Code Queries: If the user asks for code, programming snippets, or scripts, output it inside a markdown fenced code block with the language label (e.g. ```python).
+        3. Be flexible and use semantic reasoning. If the user asks a question using synonyms, shorthand, or abbreviations (e.g. "where working" or "education" or "experience"), interpret their intent intelligently using the context.
+        4. If the user asks general or meta-questions about the document (e.g. "what is important in this doc", "summarize", "give key highlights"), analyze the text and provide a helpful response.
+        5. If the document is a resume, CV, or professional profile, and the user asks for an evaluation (e.g. "is he good", "should we hire", "rate them", "how is the college", "is that college good"), you are explicitly instructed to use your external general knowledge to evaluate the quality, reputation, and prestige of the universities/colleges (e.g. PICT Pune is widely known as a top-tier premier engineering college in Maharashtra/India; IITs/NITs/IISc are elite institutes; Ivy League, etc.), company reputations, industry tools/frameworks, and research publication impact (e.g. Scopus-indexed). Provide a detailed, professional, and insightful rating or comparison to help the user make hiring decisions.
+        6. Ground your facts strictly in the document details. If the user asks a specific factual question about the document that cannot be answered, state what is/isn't there. However, if the user asks a conversational follow-up, general reasoning, or speculative question (e.g. "still what do you think", "what is your opinion", or asking to guess the target audience/exam/intent of the document), do NOT shut them down with a rigid fallback. Instead, analyze the document context, clearly note what is or isn't explicitly mentioned, and then provide a highly intelligent, logical deduction, explanation, or speculation using your general knowledge to be as helpful as possible.
+        7. Speak in a natural, helpful, and direct tone. Maintain continuity with the recent conversation history provided.
+        8. CITATIONS RULE: You MUST cite the specific sources from the context using inline superscript numbers, e.g., [1], [2], or [3] (corresponding to [Source 1], [Source 2], [Source 3]). Place these citations directly after the sentence, claim, or table cell content that references that source. Do not append a separate "Sources" section or summary list at the end of your response, just use the inline bracket numbers.
         """
+        
+        # Rewrite query if conversation history is available
+        search_query = question
+        if history and len(history) > 0:
+            search_query = rewrite_query_with_history(history, question)
         
         # Try to retrieve semantic vector search context from Qdrant first
         sources = []
         if doc_id and os.getenv("GEMINI_API_KEY"):
-            sources = search_qdrant_context(doc_id, question)
+            sources = search_qdrant_context(doc_id, search_query)
             
         if sources:
-            context_to_use = "\n\n[...]\n\n".join([s["text"] for s in sources])
+            context_to_use = ""
+            for idx, s in enumerate(sources):
+                context_to_use += f"[Source {idx + 1}] (Document: {s['docName']}, Page: {s['page']}):\n{s['text']}\n\n"
         else:
             # Fallback to local keyword RAG
-            context_to_use = filter_relevant_context(text, question, max_tokens=1500)
+            context_to_use_raw = filter_relevant_context(text, search_query, max_tokens=1500)
+            context_to_use = f"[Source 1] (Document: Document, Page: 1):\n{context_to_use_raw}"
             doc_id_val = doc_id if isinstance(doc_id, str) else (doc_id[0] if isinstance(doc_id, list) and doc_id else "unknown")
             sources = [{
                 "docId": doc_id_val,
                 "docName": "Document",
-                "text": context_to_use[:500] + "..." if context_to_use else "",
+                "text": context_to_use_raw[:500] + "..." if context_to_use_raw else "",
                 "page": 1
             }]
             
+        # Build history context string
+        history_context = ""
+        if history and len(history) > 0:
+            history_context = "\nRecent Conversation History:\n"
+            for turn in history[-5:]:  # Include last 5 turns
+                role = "User" if turn.get("role") == "user" else "Assistant"
+                content = turn.get("content", "")
+                history_context += f"{role}: {content}\n"
+            history_context += "\n"
+
         if groq_client:
             try:
                 prompt = f"""
@@ -655,7 +729,7 @@ def answer_question(text: str, question: str, doc_id: Any = None, custom_system_
                 ---
                 {context_to_use}
                 ---
-                
+                {history_context}
                 Question: {question}
                 
                 Answer:
@@ -680,7 +754,7 @@ def answer_question(text: str, question: str, doc_id: Any = None, custom_system_
                     ---
                     {context_to_use}
                     ---
-                    
+                    {history_context}
                     Question: {question}
                     """
                     response = gemini_model.generate_content(
@@ -699,7 +773,7 @@ def answer_question(text: str, question: str, doc_id: Any = None, custom_system_
             ---
             {context_to_use}
             ---
-            
+            {history_context}
             Question: {question}
             """
             response = gemini_model.generate_content(
@@ -917,16 +991,12 @@ def simulate_agent_debate(text: str, question: str, custom_agents: list = None) 
     if custom_agents and len(custom_agents) > 0:
         # Build dynamic prompt with custom agents
         agent_descriptions = ""
-        agent_json_format = []
         for idx, a in enumerate(custom_agents):
             name = a.get("name", f"Agent {idx+1}")
             avatar = a.get("avatar", "🤖")
             prompt_instr = a.get("systemPrompt", "Be a helpful assistant.")
             agent_descriptions += f"{idx+1}. {name} (Avatar: {avatar}): {prompt_instr}\n"
-            agent_json_format.append(f'  {{ "agent": "{name}", "avatar": "{avatar}", "message": "{name}\'s opinion..." }}')
             
-        json_format_str = "[\n" + ",\n".join(agent_json_format) + "\n]"
-        
         prompt = f"""
         You are a simulator of a panel discussion featuring the following custom agents:
         {agent_descriptions}
@@ -935,9 +1005,17 @@ def simulate_agent_debate(text: str, question: str, custom_agents: list = None) 
         Document Context: {text[:4000]}
         Question/Topic: {question}
         
-        Simulate a collaborative discussion where each agent gives their professional opinion based on their custom instructions.
-        Return ONLY a JSON list of dialogue objects matching this exact format:
-        {json_format_str}
+        Simulate a collaborative discussion panel.
+        Instructions:
+        1. Turn 1-N: Each agent gives their professional opinion based on their custom instructions. They should actively respond to, critique, or build upon the previous agent's points (e.g. "I hear Agent X's perspective, but from my view...").
+        2. Final Turn: Add a "Panel Moderator (Consensus)" agent with avatar "🤖" at the end of the list. The message of the Moderator MUST contain a detailed Markdown Table summarizing the points discussed, each agent's key position, and a final consensus evaluation rating (e.g. 1-5 Stars). Place inline superscript citations (e.g. [1], [2]) directly inside the table cells right next to the facts discussed.
+        
+        Return ONLY a JSON object matching this exact format:
+        {{
+          "dialogue": [
+            {{ "agent": "AgentName", "avatar": "Avatar", "message": "Message text..." }}
+          ]
+        }}
         
         Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
         """
@@ -953,13 +1031,28 @@ def simulate_agent_debate(text: str, question: str, custom_agents: list = None) 
         Document Context: {text[:4000]}
         Question/Topic: {question}
         
-        Simulate a 3-turn debate where each character gives their unique professional opinion.
-        Return ONLY a JSON list of dialogue objects with this format:
-        [
-          {{ "agent": "Leo (Tech Lead)", "avatar": "👨‍💻", "message": "Leo's opinion..." }},
-          {{ "agent": "Sarah (HR Director)", "avatar": "👩‍💼", "message": "Sarah's opinion..." }},
-          {{ "agent": "Mike (Business Analyst)", "avatar": "📊", "message": "Mike's opinion..." }}
-        ]
+        Simulate an active debate panel discussion.
+        Instructions:
+        - Leo (Tech Lead) speaks first, analyzing technical parameters from the text.
+        - Sarah (HR Director) speaks second, reacting directly to Leo's inputs and adding HR/people parameters.
+        - Mike (Business Analyst) speaks third, reacting to both Leo and Sarah's points and adding business/cost parameters.
+        - Panel Moderator (Consensus) (Avatar: 🤖) speaks last, reviewing their debate. The message of the Moderator MUST contain a beautiful structured Markdown Table summarizing:
+          - Aspect Evaluated
+          - Leo's View (Technical)
+          - Sarah's View (HR)
+          - Mike's View (Business)
+          - Consensus Rating (e.g. 1-5 Stars)
+          Ensure you place inline superscript citations (e.g. [1], [2]) directly inside the table cells next to the facts discussed.
+          
+        Return ONLY a JSON object matching this exact format:
+        {{
+          "dialogue": [
+            {{ "agent": "Leo (Tech Lead)", "avatar": "👨‍💻", "message": "..." }},
+            {{ "agent": "Sarah (HR Director)", "avatar": "👩‍💼", "message": "..." }},
+            {{ "agent": "Mike (Business Analyst)", "avatar": "📊", "message": "..." }},
+            {{ "agent": "Panel Moderator (Consensus)", "avatar": "🤖", "message": "..." }}
+          ]
+        }}
         
         Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
         """
@@ -1136,3 +1229,127 @@ def optimize_agent_prompt(description: str) -> str:
     except Exception as e:
         print(f"Error in optimize_agent_prompt: {e}")
         return f"You are a specialized assistant whose persona is defined as follows: {description}. Provide helpful, structured, and accurate responses."
+
+def extract_action_items(text: str) -> list:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not gemini_model and not groq_client:
+        print("Neither Gemini nor Groq API Key found, returning fallback empty action items list")
+        return []
+        
+    prompt = f"""
+    You are a highly efficient administrative AI assistant.
+    Analyze the provided document text context and extract all actionable items, tasks, commitments, or assignments.
+    For each task, identify:
+    1. Description/title of the action item.
+    2. Assignee (person, team, or department responsible, if mentioned; otherwise "Unassigned").
+    3. Due Date (deadline or timeline, if mentioned; otherwise "No deadline").
+    
+    Return ONLY a JSON list of objects matching this exact format:
+    [
+      {{
+        "title": "Action item description",
+        "assignee": "Name or Team",
+        "dueDate": "Due date / timeline"
+      }}
+    ]
+    
+    Ensure you only return valid JSON. Do not write any markdown code blocks, explanations, or metadata.
+    
+    Document Text:
+    {text[:12000]}
+    """
+    
+    try:
+        content = ""
+        if groq_client:
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    response_format={"type": "json_object"}
+                )
+                content = response.choices[0].message.content
+            except Exception as e:
+                print(f"Groq extract_action_items failed: {e}. Trying Gemini fallback...")
+                if gemini_model:
+                    response = gemini_model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.2
+                        }
+                    )
+                    content = response.text.strip()
+                else:
+                    raise e
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.2
+                }
+            )
+            content = response.text.strip()
+            
+        import json
+        data = json.loads(content)
+        if isinstance(data, dict):
+            for val in data.values():
+                if isinstance(val, list):
+                    data = val
+                    break
+        if isinstance(data, list):
+            return data
+        return []
+    except Exception as e:
+        print(f"Error in extract_action_items: {e}")
+        return []
+
+def generate_chat_title(question: str) -> str:
+    gemini_model = get_gemini_client()
+    groq_client = get_groq_client()
+    
+    if not gemini_model and not groq_client:
+        return "New Conversation"
+        
+    prompt = f"""
+    Analyze the following user's first question in a chat and generate a short, punchy, summary title for the conversation.
+    The title must be between 3 and 5 words maximum. Do not put quotes around it, and do not prefix it. Just return the raw title.
+    
+    First Question: {question}
+    
+    Title:
+    """
+    
+    try:
+        if groq_client:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are a precise conversation summarizer. Return only a 3-5 word title with no quotes or markdown, nothing else."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+            title = response.choices[0].message.content.strip()
+            print(f"Generated chat title (Groq): '{title}'")
+            return title
+        elif gemini_model:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.3}
+            )
+            title = response.text.strip()
+            # Clean up potential leading/trailing quotes
+            if title.startswith('"') and title.endswith('"'):
+                title = title[1:-1]
+            print(f"Generated chat title (Gemini): '{title}'")
+            return title
+    except Exception as e:
+        print(f"Error generating chat title: {e}")
+        
+    return "New Chat Thread"

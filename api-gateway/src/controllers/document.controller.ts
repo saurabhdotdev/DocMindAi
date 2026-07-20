@@ -436,4 +436,53 @@ export class DocumentController {
       return next(error);
     }
   }
+
+  // Get action items list
+  static async getActionItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id } = req.params;
+      const items = await DocumentService.getActionItems(req.user.id, id);
+
+      return res.status(200).json({
+        success: true,
+        data: items,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  // Toggle action item completed state
+  static async toggleActionItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(new AppError('User session not found', 401));
+      }
+
+      const { id, itemId } = req.params;
+      const { completed } = req.body;
+
+      if (completed === undefined) {
+        return next(new AppError('Completed state is required', 400));
+      }
+
+      const updated = await DocumentService.toggleActionItem(
+        req.user.id,
+        id,
+        itemId,
+        Boolean(completed)
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: updated,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   Shield, Plus, Trash2, RefreshCw, ToggleLeft, ToggleRight
 } from 'lucide-react';
@@ -18,6 +19,7 @@ export const Workflows: React.FC = () => {
 
   // Action state
   const [targetFolderId, setTargetFolderId] = useState('');
+  const [deletingWorkflowId, setDeletingWorkflowId] = useState<string | null>(null);
 
   // Fetch folders list for action configuration
   const { data: folders = [] } = useQuery({
@@ -165,11 +167,7 @@ export const Workflows: React.FC = () => {
                       )}
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm('Delete this automated workflow rule?')) {
-                          deleteMutation.mutate(wf.id);
-                        }
-                      }}
+                      onClick={() => setDeletingWorkflowId(wf.id)}
                       className="p-2 border border-white/5 hover:border-brand-error/20 hover:bg-brand-error/15 rounded-lg text-brand-textMuted hover:text-brand-error transition-all"
                       title="Delete Rule"
                     >
@@ -288,6 +286,23 @@ export const Workflows: React.FC = () => {
         )}
 
       </main>
+
+      {/* Delete Workflow Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deletingWorkflowId !== null}
+        title="Delete Workflow Rule"
+        message="Are you sure you want to delete this automated workflow rule? This action cannot be undone."
+        confirmText="Delete Rule"
+        cancelText="Cancel"
+        onConfirm={() => {
+          if (deletingWorkflowId) {
+            deleteMutation.mutate(deletingWorkflowId);
+            setDeletingWorkflowId(null);
+          }
+        }}
+        onCancel={() => setDeletingWorkflowId(null)}
+        type="danger"
+      />
     </MainLayout>
   );
 };

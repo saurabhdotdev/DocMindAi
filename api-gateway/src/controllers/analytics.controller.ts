@@ -97,4 +97,74 @@ export class AnalyticsController {
       return next(error);
     }
   }
+
+  // GET /v1/analytics/storage
+  static async storageStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) return next(new AppError('Unauthorized', 401));
+      const userId = req.user.id;
+
+      // Get user plan
+      const subscription = await prisma.subscription.findUnique({
+        where: { userId }
+      });
+      const planName = subscription?.plan || 'FREE';
+
+      // Map limits
+      const LIMITS: Record<string, number> = {
+        FREE: 50 * 1024 * 1024,        // 50 MB
+        PRO: 2 * 1024 * 1024 * 1024,    // 2 GB
+        ENTERPRISE: 50 * 1024 * 1024 * 1024 // 50 GB
+      };
+      const limitBytes = LIMITS[planName] || LIMITS.FREE;
+
+      // Get file size aggregations
+      const totalAggregate = await prisma.document.aggregate({
+        where: { userId },
+        _sum: { size: true },
+        _count: { id: true }
+      });
+
+      const totalSizeBytes = totalAggregate._sum.size || 0;
+      const totalFiles = totalAggregate._count.id || 0;
+
+      // Get breakdown by type
+      const groups = await prisma.document.groupBy({
+        by: ['type'],
+        where: { userId },
+        _sum: { size: true },
+        _count: { id: true }
+      });
+
+      const breakdown = groups.map((g: any) => ({
+        type: g.type,
+        sizeBytes: g._sum.size || 0,
+        count: g._count.id || 0
+      }));
+
+      // Get environment configuration details
+      const storageProvider = process.env.S3_ENDPOINT?.includes('localstack') ? 'LocalStack S3' : 'AWS S3';
+      const s3Bucket = process.env.S3_BUCKET_NAME || 'docmind-uploads';
+      const s3Region = process.env.AWS_REGION || 'us-east-1';
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalSizeBytes,
+          totalFiles,
+          limitBytes,
+          planName,
+          breakdown,
+          config: {
+            provider: storageProvider,
+            bucket: s3Bucket,
+            region: s3Region,
+            status: 'Online'
+          }
+        }
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
 }

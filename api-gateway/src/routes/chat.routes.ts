@@ -9,5 +9,7 @@ router.get('/', authenticateJWT, ChatController.list);
 router.post('/', authenticateJWT, ChatController.create);
 router.get('/:id/messages', authenticateJWT, ChatController.getHistory);
 router.post('/:id/messages', authenticateJWT, ChatController.sendMessage);
+router.delete('/:id', authenticateJWT, ChatController.delete);
+router.put('/:id', authenticateJWT, ChatController.rename);
 
 export default router;

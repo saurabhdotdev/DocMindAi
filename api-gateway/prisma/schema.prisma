@@ -146,6 +146,7 @@ model Document {
   folder         Folder?                 @relation(fields: [folderId], references: [id], onDelete: SetNull)
   annotations    Annotation[]
   versions       DocumentVersion[]
+  actionItems    ActionItem[]
 
   @@map("documents")
 }
@@ -419,4 +420,19 @@ model DocumentVersion {
   document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@map("document_versions")
+}
+
+model ActionItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @db.Uuid
+  title       String
+  assignee    String?
+  dueDate     String?
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("action_items")
 }

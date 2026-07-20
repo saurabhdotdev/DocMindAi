@@ -7,5 +7,6 @@ const router = Router();
 router.get('/overview', authenticateJWT, AnalyticsController.overview);
 router.get('/timeline', authenticateJWT, AnalyticsController.timeline);
 router.get('/entities', authenticateJWT, AnalyticsController.entities);
+router.get('/storage', authenticateJWT, AnalyticsController.storageStats);
 
 export default router;

@@ -93,10 +93,14 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <span>Ask AI</span>
             </button>
             <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-brand-textMuted hover:bg-white/5 hover:text-white font-medium text-sm transition-all text-left opacity-70 cursor-not-allowed"
-              title="Coming Soon"
+              onClick={() => navigate('/storage')}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg font-medium text-sm transition-all text-left ${
+                location.pathname.startsWith('/storage')
+                  ? 'bg-white/5 text-white'
+                  : 'text-brand-textMuted hover:bg-white/5 hover:text-white'
+              }`}
             >
-              <HardDrive className="w-4 h-4" />
+              <HardDrive className={`w-4 h-4 ${location.pathname.startsWith('/storage') ? 'text-brand-primary' : ''}`} />
               <span>Storage System</span>
             </button>
             <button

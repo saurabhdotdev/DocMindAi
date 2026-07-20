@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   Plus, Trash2, RefreshCw, Bot, Sparkles
 } from 'lucide-react';
@@ -13,6 +14,7 @@ export const Agents: React.FC = () => {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [avatar, setAvatar] = useState('🤖');
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
 
   const handleOptimizePrompt = async () => {
     if (!systemPrompt.trim()) {
@@ -141,11 +143,7 @@ export const Agents: React.FC = () => {
 
                 <div className="flex justify-end pt-2 border-t border-white/5">
                   <button
-                    onClick={() => {
-                      if (confirm('Delete this custom agent profile?')) {
-                        deleteMutation.mutate(agent.id);
-                      }
-                    }}
+                    onClick={() => setDeletingAgentId(agent.id)}
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-white/5 hover:border-brand-error/20 hover:bg-brand-error/15 rounded-lg text-brand-textMuted hover:text-brand-error text-xs font-semibold transition-all"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -249,6 +247,23 @@ export const Agents: React.FC = () => {
         )}
 
       </main>
+
+      {/* Delete Agent Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deletingAgentId !== null}
+        title="Delete Custom Agent Persona"
+        message="Are you sure you want to delete this custom agent profile? This action cannot be undone."
+        confirmText="Delete Persona"
+        cancelText="Cancel"
+        onConfirm={() => {
+          if (deletingAgentId) {
+            deleteMutation.mutate(deletingAgentId);
+            setDeletingAgentId(null);
+          }
+        }}
+        onCancel={() => setDeletingAgentId(null)}
+        type="danger"
+      />
     </MainLayout>
   );
 };

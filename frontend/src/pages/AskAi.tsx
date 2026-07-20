@@ -2,10 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   Sparkles, Bot, User, Send, RefreshCw, Upload,
-  FileText, Search, Plus, CheckCircle2, AlertCircle, FileCheck, Clock
+  FileText, Search, Plus, CheckCircle2, AlertCircle, FileCheck, Clock, Trash2,
+  Edit, Check, X, Download
 } from 'lucide-react';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
+import { exportToMarkdown, exportToPDF } from '../utils/exportUtils';
 
 interface Source {
   docId: string;
@@ -61,6 +65,10 @@ export const AskAi: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string>('');
+  const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Scroll to bottom of chat
@@ -147,6 +155,40 @@ export const AskAi: React.FC = () => {
     }
   });
 
+  // Delete persistent chat session mutation
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      await api.delete(`/v1/chats/${sessionId}`);
+    },
+    onSuccess: (_, deletedSessionId) => {
+      queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+      if (activeSessionId === deletedSessionId) {
+        setActiveSessionId(null);
+        setChatMessages([]);
+        setSelectedDocIds([]);
+      }
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || 'Failed to delete chat thread.');
+    }
+  });
+
+  // Rename persistent chat session mutation
+  const renameSessionMutation = useMutation({
+    mutationFn: async ({ sessionId, title }: { sessionId: string; title: string }) => {
+      const res = await api.put(`/v1/chats/${sessionId}`, { title });
+      return res.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+      setEditingSessionId(null);
+      setEditingTitle('');
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || 'Failed to rename chat thread.');
+    }
+  });
+
   // Document upload mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -189,9 +231,9 @@ export const AskAi: React.FC = () => {
 
       // Sync persistent session logic when exactly one document is active
       if (next.length === 1) {
-        const match = chatSessions.find((s: any) => s.documentId === next[0]);
-        if (match) {
-          setActiveSessionId(match.id);
+        const matches = chatSessions.filter((s: any) => s.documentId === next[0]);
+        if (matches.length > 0) {
+          setActiveSessionId(matches[0].id);
         } else {
           createSessionMutation.mutate(next[0]);
         }
@@ -474,10 +516,25 @@ export const AskAi: React.FC = () => {
 
             {/* Chat History Selector */}
             <div className="space-y-3">
-              <h2 className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-                Recent Chat Threads
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-bold uppercase tracking-wider text-brand-textMuted flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                  Recent Chat Threads
+                </h2>
+                {selectedDocIds.length === 1 && (
+                  <button
+                    onClick={() => {
+                      createSessionMutation.mutate(selectedDocIds[0]);
+                    }}
+                    disabled={createSessionMutation.isPending}
+                    className="text-[10px] text-brand-primary hover:text-white font-bold flex items-center gap-1 transition-all disabled:opacity-40"
+                    title="Start new chat thread for this document"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>New Chat</span>
+                  </button>
+                )}
+              </div>
               <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                 {isSessionsLoading ? (
                   <div className="flex justify-center py-2">
@@ -488,23 +545,97 @@ export const AskAi: React.FC = () => {
                 ) : (
                   chatSessions.map((session: any) => {
                     const isActive = session.id === activeSessionId;
+                    const isEditing = session.id === editingSessionId;
+
                     return (
-                      <button
+                      <div
                         key={session.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedDocIds([session.documentId]);
-                          setActiveSessionId(session.id);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded-lg border text-[11px] transition-all flex items-center gap-2 ${
-                          isActive
-                            ? 'bg-brand-primary/10 border-brand-primary/30 text-white font-medium shadow-sm'
-                            : 'bg-brand-dark/20 border-white/5 text-brand-textMuted hover:border-white/10 hover:text-brand-text'
-                        }`}
+                        className="group flex items-center justify-between gap-1 w-full"
                       >
-                        <Bot className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-brand-primary' : 'text-brand-textMuted'}`} />
-                        <span className="truncate block flex-1">{session.title}</span>
-                      </button>
+                        {isEditing ? (
+                          <div className="flex-1 flex items-center gap-1 bg-brand-dark/40 border border-brand-primary/40 rounded-lg p-1 animate-in fade-in duration-100">
+                            <input
+                              type="text"
+                              value={editingTitle}
+                              onChange={(e) => setEditingTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && editingTitle.trim()) {
+                                  renameSessionMutation.mutate({ sessionId: session.id, title: editingTitle.trim() });
+                                } else if (e.key === 'Escape') {
+                                  setEditingSessionId(null);
+                                  setEditingTitle('');
+                                }
+                              }}
+                              className="bg-transparent border-0 outline-none text-white text-[11px] px-1 flex-1 min-w-0"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editingTitle.trim()) {
+                                  renameSessionMutation.mutate({ sessionId: session.id, title: editingTitle.trim() });
+                                }
+                              }}
+                              className="p-1 text-brand-success hover:bg-brand-success/10 rounded shrink-0"
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSessionId(null);
+                                setEditingTitle('');
+                              }}
+                              className="p-1 text-brand-error hover:bg-brand-error/10 rounded shrink-0"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDocIds([session.documentId]);
+                                setActiveSessionId(session.id);
+                              }}
+                              className={`flex-1 text-left px-3 py-2 rounded-lg border text-[11px] transition-all flex items-center gap-2 overflow-hidden ${
+                                isActive
+                                  ? 'bg-brand-primary/10 border-brand-primary/30 text-white font-medium shadow-sm'
+                                  : 'bg-brand-dark/20 border-white/5 text-brand-textMuted hover:border-white/10 hover:text-brand-text'
+                              }`}
+                            >
+                              <Bot className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-brand-primary' : 'text-brand-textMuted'}`} />
+                              <span className="truncate block flex-1">{session.title}</span>
+                            </button>
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingSessionId(session.id);
+                                  setEditingTitle(session.title);
+                                }}
+                                className="p-1.5 border border-white/5 hover:border-brand-primary/20 hover:bg-brand-primary/15 rounded-lg text-brand-textMuted hover:text-brand-primary"
+                                title="Rename Chat"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeletingSessionId(session.id);
+                                }}
+                                className="p-1.5 border border-white/5 hover:border-brand-error/20 hover:bg-brand-error/15 rounded-lg text-brand-textMuted hover:text-brand-error"
+                                title="Delete Chat Thread"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     );
                   })
                 )}
@@ -557,6 +688,72 @@ export const AskAi: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {selectedDocIds.length === 1 && (
+                        <button
+                          onClick={() => createSessionMutation.mutate(selectedDocIds[0])}
+                          disabled={createSessionMutation.isPending}
+                          className="px-3 py-1.5 bg-white/5 border border-white/5 hover:border-white/10 hover:bg-white/10 rounded-lg text-xs flex items-center gap-1.5 transition-all text-brand-textMuted hover:text-white font-semibold disabled:opacity-40"
+                          title="Start a new chat thread for this document"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-brand-primary" />
+                          <span>New Chat</span>
+                        </button>
+                      )}
+
+                      {/* Export Report Dropdown */}
+                      {activeSessionId && chatMessages.length > 0 && (
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setIsExportOpen(!isExportOpen)}
+                            className="px-3 py-1.5 bg-white/5 border border-white/5 hover:border-white/10 hover:bg-white/10 rounded-lg text-xs flex items-center gap-1.5 transition-all text-brand-textMuted hover:text-white font-semibold"
+                            title="Export conversation report"
+                          >
+                            <Download className="w-3.5 h-3.5 text-brand-primary" />
+                            <span>Export Report</span>
+                          </button>
+                          {isExportOpen && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-10" 
+                                onClick={() => setIsExportOpen(false)}
+                              />
+                              <div className="absolute right-0 mt-1.5 w-44 bg-brand-dark/95 border border-white/10 rounded-xl shadow-xl backdrop-blur-md p-1 z-20 animate-in fade-in slide-in-from-top-1 duration-100">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const activeSession = chatSessions.find((s: any) => s.id === activeSessionId);
+                                    const sessionTitle = activeSession?.title || 'Chat Thread';
+                                    const activeDoc = documents.find((d: any) => d.id === (activeSession?.documentId || selectedDocIds[0]));
+                                    const docName = activeDoc?.name || 'document';
+                                    exportToMarkdown(sessionTitle, chatMessages, docName);
+                                    setIsExportOpen(false);
+                                  }}
+                                  className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-brand-text hover:bg-white/5 transition-all flex items-center gap-2"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-brand-primary" />
+                                  <span>Download Markdown</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const activeSession = chatSessions.find((s: any) => s.id === activeSessionId);
+                                    const sessionTitle = activeSession?.title || 'Chat Thread';
+                                    const activeDoc = documents.find((d: any) => d.id === (activeSession?.documentId || selectedDocIds[0]));
+                                    const docName = activeDoc?.name || 'document';
+                                    exportToPDF(sessionTitle, chatMessages, docName);
+                                    setIsExportOpen(false);
+                                  }}
+                                  className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-brand-text hover:bg-white/5 transition-all flex items-center gap-2"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 text-brand-primary" />
+                                  <span>Export PDF Report</span>
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
                       {/* Custom Agent selector dropdown */}
                       {selectedDocIds.length === 1 && !isDebateMode && (
                         <select
@@ -649,87 +846,112 @@ export const AskAi: React.FC = () => {
 
                 {/* Chat Message List */}
                 <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-                  {chatMessages.map((msg, i) => (
-                    <div key={i} className={`flex flex-col space-y-2`}>
-                      <div className={`flex gap-3.5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
-                          msg.role === 'user' 
-                            ? 'bg-brand-primary/10 border-brand-primary/20' 
-                            : msg.role === 'leo'
-                            ? 'bg-brand-primary/10 border-brand-primary/20'
-                            : msg.role === 'sarah'
-                            ? 'bg-brand-secondary/10 border-brand-secondary/20'
-                            : msg.role === 'mike'
-                            ? 'bg-brand-success/10 border-brand-success/20'
-                            : msg.role === 'custom_agent'
-                            ? 'bg-brand-primary/10 border-brand-primary/20'
-                            : 'bg-white/5 border-white/5'
-                        }`}>
-                          {msg.role === 'user' ? (
-                            <User className="w-3.5 h-3.5 text-brand-primary" />
-                          ) : msg.role === 'leo' ? (
-                            <span className="text-xs">👨‍💻</span>
-                          ) : msg.role === 'sarah' ? (
-                            <span className="text-xs">👩‍💼</span>
-                          ) : msg.role === 'mike' ? (
-                            <span className="text-xs">📊</span>
-                          ) : msg.role === 'custom_agent' ? (
-                            <span className="text-xs">{msg.agentAvatar || '🤖'}</span>
-                          ) : (
-                            <Bot className="w-3.5 h-3.5 text-brand-textMuted" />
-                          )}
-                        </div>
-                        <div className={`max-w-[80%] px-4 py-3.5 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap shadow-sm ${
-                          msg.role === 'user'
-                            ? 'bg-brand-primary/20 text-white rounded-tr-sm'
-                            : msg.role === 'leo'
-                            ? 'bg-brand-primary/10 border border-brand-primary/20 text-brand-text rounded-tl-sm'
-                            : msg.role === 'sarah'
-                            ? 'bg-brand-secondary/10 border border-brand-secondary/20 text-brand-text rounded-tl-sm'
-                            : msg.role === 'mike'
-                            ? 'bg-brand-success/10 border border-brand-success/20 text-brand-text rounded-tl-sm'
-                            : msg.role === 'custom_agent'
-                            ? 'bg-brand-primary/10 border border-brand-primary/20 text-brand-text rounded-tl-sm'
-                            : 'bg-white/5 text-brand-text rounded-tl-sm border border-white/[0.02]'
-                        }`}>
-                          {(msg.role === 'leo' || msg.role === 'sarah' || msg.role === 'mike') && (
-                            <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
-                              {msg.role === 'leo' ? 'Leo (Tech Lead)' : msg.role === 'sarah' ? 'Sarah (HR Director)' : 'Mike (Business Analyst)'}
-                            </span>
-                          )}
-                          {msg.role === 'custom_agent' && (
-                            <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
-                              {msg.agentName}
-                            </span>
-                          )}
-                          {msg.content}
-                          
-                          {/* Citation links below AI bubbles */}
-                          {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                            <div className="mt-3 pt-2.5 border-t border-white/5 flex flex-wrap gap-1.5">
-                              {msg.sources.map((src, sIdx) => (
-                                <button
-                                  key={sIdx}
-                                  onClick={() => {
-                                    setPreviewDocId(src.docId);
-                                    setPreviewPage(src.page);
-                                    setHighlightedText(src.text); // Hold clicked citation context
-                                    setIsPreviewOpen(true);
-                                  }}
-                                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 hover:border-brand-primary/40 hover:bg-brand-primary/5 text-[9px] text-brand-textMuted hover:text-white transition-all max-w-[200px]"
-                                  title={`Click to preview page ${src.page} of ${src.docName}`}
-                                >
-                                  <FileText className="w-3 h-3 text-brand-primary shrink-0" />
-                                  <span className="truncate">{src.docName}</span>
-                                  <span className="shrink-0 font-bold text-brand-primary">(p. {src.page})</span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                  {chatMessages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-8 gap-3 text-brand-textMuted select-none">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-brand-primary/10 to-brand-secondary/10 flex items-center justify-center border border-brand-primary/10 animate-pulse">
+                        <Bot className="w-6 h-6 text-brand-primary" />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-xs font-bold text-white block">Start a fresh conversation thread</span>
+                        <p className="text-[10px] max-w-xs leading-relaxed text-brand-textMuted">
+                          Ask questions, summarize contents, or extract key tables. The AI utilizes semantic RAG vector context to answer accurately.
+                        </p>
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    chatMessages.map((msg, i) => (
+                      <div key={i} className={`flex flex-col space-y-2`}>
+                        <div className={`flex gap-3.5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
+                            msg.role === 'user' 
+                              ? 'bg-brand-primary/10 border-brand-primary/20' 
+                              : msg.role === 'leo'
+                              ? 'bg-brand-primary/10 border-brand-primary/20'
+                              : msg.role === 'sarah'
+                              ? 'bg-brand-secondary/10 border-brand-secondary/20'
+                              : msg.role === 'mike'
+                              ? 'bg-brand-success/10 border-brand-success/20'
+                              : msg.role === 'custom_agent'
+                              ? 'bg-brand-primary/10 border-brand-primary/20'
+                              : 'bg-white/5 border-white/5'
+                          }`}>
+                            {msg.role === 'user' ? (
+                              <User className="w-3.5 h-3.5 text-brand-primary" />
+                            ) : msg.role === 'leo' ? (
+                              <span className="text-xs">👨‍💻</span>
+                            ) : msg.role === 'sarah' ? (
+                              <span className="text-xs">👩‍💼</span>
+                            ) : msg.role === 'mike' ? (
+                              <span className="text-xs">📊</span>
+                            ) : msg.role === 'custom_agent' ? (
+                              <span className="text-xs">{msg.agentAvatar || '🤖'}</span>
+                            ) : (
+                              <Bot className="w-3.5 h-3.5 text-brand-textMuted" />
+                            )}
+                          </div>
+                          <div className={`max-w-[80%] px-4 py-3.5 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap shadow-sm ${
+                            msg.role === 'user'
+                              ? 'bg-brand-primary/20 text-white rounded-tr-sm'
+                              : msg.role === 'leo'
+                              ? 'bg-brand-primary/10 border border-brand-primary/20 text-brand-text rounded-tl-sm'
+                              : msg.role === 'sarah'
+                              ? 'bg-brand-secondary/10 border border-brand-secondary/20 text-brand-text rounded-tl-sm'
+                              : msg.role === 'mike'
+                              ? 'bg-brand-success/10 border border-brand-success/20 text-brand-text rounded-tl-sm'
+                              : msg.role === 'custom_agent'
+                              ? 'bg-brand-primary/10 border border-brand-primary/20 text-brand-text rounded-tl-sm'
+                              : 'bg-white/5 text-brand-text rounded-tl-sm border border-white/[0.02]'
+                          }`}>
+                            {(msg.role === 'leo' || msg.role === 'sarah' || msg.role === 'mike') && (
+                              <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
+                                {msg.role === 'leo' ? 'Leo (Tech Lead)' : msg.role === 'sarah' ? 'Sarah (HR Director)' : 'Mike (Business Analyst)'}
+                              </span>
+                            )}
+                            {msg.role === 'custom_agent' && (
+                              <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-1 text-brand-primary">
+                                {msg.agentName}
+                              </span>
+                            )}
+                            <MarkdownRenderer 
+                              content={msg.content} 
+                              onCitationClick={(citationIdx) => {
+                                if (msg.sources && msg.sources[citationIdx]) {
+                                  const src = msg.sources[citationIdx];
+                                  setPreviewDocId(src.docId);
+                                  setPreviewPage(src.page);
+                                  setHighlightedText(src.text);
+                                  setIsPreviewOpen(true);
+                                }
+                              }}
+                            />
+                            
+                            {/* Citation links below AI bubbles */}
+                            {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                              <div className="mt-3 pt-2.5 border-t border-white/5 flex flex-wrap gap-1.5">
+                                {msg.sources.map((src, sIdx) => (
+                                  <button
+                                    key={sIdx}
+                                    onClick={() => {
+                                      setPreviewDocId(src.docId);
+                                      setPreviewPage(src.page);
+                                      setHighlightedText(src.text); // Hold clicked citation context
+                                      setIsPreviewOpen(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 hover:border-brand-primary/40 hover:bg-brand-primary/5 text-[9px] text-brand-textMuted hover:text-white transition-all max-w-[200px]"
+                                    title={`Click to preview page ${src.page} of ${src.docName}`}
+                                  >
+                                    <FileText className="w-3 h-3 text-brand-primary shrink-0" />
+                                    <span className="truncate">{src.docName}</span>
+                                    <span className="shrink-0 font-bold text-brand-primary">(p. {src.page})</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                   
                   {isChatLoading && (
                     <div className="flex gap-3.5">
@@ -1101,6 +1323,22 @@ export const AskAi: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Delete Chat Session Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deletingSessionId !== null}
+        title="Delete Chat Thread"
+        message="Are you sure you want to delete this chat thread? All past messages and citations inside this thread will be permanently deleted."
+        confirmText="Delete Thread"
+        cancelText="Cancel"
+        onConfirm={() => {
+          if (deletingSessionId) {
+            deleteSessionMutation.mutate(deletingSessionId);
+            setDeletingSessionId(null);
+          }
+        }}
+        onCancel={() => setDeletingSessionId(null)}
+        type="danger"
+      />
     </MainLayout>
   );
 };

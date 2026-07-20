@@ -229,7 +229,7 @@ export class DocumentService {
   }
 
   // Ask questions about document content using AI Service Q&A
-  static async chatWithDocument(userId: string, documentId: string, question: string, systemPrompt?: string) {
+  static async chatWithDocument(userId: string, documentId: string, question: string, systemPrompt?: string, history?: any[]) {
     const document = await prisma.document.findFirst({
       where: { id: documentId, userId },
       include: {
@@ -252,7 +252,7 @@ export class DocumentService {
       const res = await fetch(`${AI_SERVICE_URL}/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ocrText, question, docId: documentId, systemPrompt }),
+        body: JSON.stringify({ text: ocrText, question, docId: documentId, systemPrompt, history }),
       });
 
       if (!res.ok) {
@@ -665,5 +665,92 @@ export class DocumentService {
     }
 
     return createdDocs;
+  }
+
+  // Extract and fetch action items checklist
+  static async getActionItems(userId: string, documentId: string) {
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, userId },
+      include: {
+        ocrResult: true,
+        actionItems: true,
+      },
+    });
+
+    if (!document) {
+      throw new AppError('Document not found or access denied', 404);
+    }
+
+    // If already generated, return from DB
+    if (document.actionItems && document.actionItems.length > 0) {
+      return document.actionItems;
+    }
+
+    const ocrText = document.ocrResult?.text || '';
+    if (!ocrText.trim()) {
+      return []; // Return empty if no text has been extracted yet
+    }
+
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+    try {
+      const res = await fetch(`${AI_SERVICE_URL}/v1/action-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: ocrText }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Service /action-items returned status ${res.status}`);
+      }
+
+      const body: any = await res.json();
+      const items: any[] = body.actionItems || [];
+
+      // Save to database
+      if (items.length > 0) {
+        await prisma.actionItem.createMany({
+          data: items.map((item) => ({
+            documentId,
+            title: String(item.title || '').trim(),
+            assignee: item.assignee ? String(item.assignee).trim() : null,
+            dueDate: item.dueDate ? String(item.dueDate).trim() : null,
+            completed: false,
+          })),
+        });
+      }
+
+      // Re-fetch saved items
+      return prisma.actionItem.findMany({
+        where: { documentId },
+      });
+    } catch (error: any) {
+      throw new AppError(`AI Action Items Error: ${error.message}`, 500);
+    }
+  }
+
+  // Toggle action item completed state
+  static async toggleActionItem(userId: string, documentId: string, itemId: string, completed: boolean) {
+    // Verify document ownership
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, userId },
+    });
+
+    if (!document) {
+      throw new AppError('Document access denied', 403);
+    }
+
+    const item = await prisma.actionItem.findFirst({
+      where: { id: itemId, documentId },
+    });
+
+    if (!item) {
+      throw new AppError('Action item not found', 404);
+    }
+
+    return prisma.actionItem.update({
+      where: { id: itemId },
+      data: { completed },
+    });
   }
 }

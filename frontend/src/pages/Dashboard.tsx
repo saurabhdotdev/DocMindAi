@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { MainLayout } from '../components/MainLayout';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { 
   FileText, Upload, Trash2, Plus, 
   Calendar, Sparkles, RefreshCw, Download, Play, ExternalLink
@@ -31,6 +32,7 @@ export const Dashboard: React.FC = () => {
   const [mergedName, setMergedName] = useState('');
   const [isMerging, setIsMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
   // Helper to map formats
   const getValidTargetFormats = (type: string): string[] => {
@@ -389,8 +391,8 @@ export const Dashboard: React.FC = () => {
 
                     return (
                       <div key={doc.id} className="py-5 first:pt-0 last:pb-0 flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3 overflow-hidden pr-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3 overflow-hidden pr-4 flex-1 min-w-0">
                             <input
                               type="checkbox"
                               checked={selectedDocIds.includes(doc.id)}
@@ -407,19 +409,19 @@ export const Dashboard: React.FC = () => {
                             >
                               <FileText className="w-5 h-5 text-brand-primary" />
                             </div>
-                            <div className="overflow-hidden">
+                            <div className="overflow-hidden flex-1 min-w-0">
                               <span className="text-sm font-medium text-white block truncate hover:text-brand-primary cursor-pointer transition-colors" onClick={() => navigate(`/documents/${doc.id}`)}>
                                 {doc.name}
                               </span>
-                              <div className="flex items-center gap-3 text-[10px] text-brand-textMuted mt-0.5">
-                                <span className="flex items-center gap-1">
+                              <div className="flex items-center gap-3 text-[10px] text-brand-textMuted mt-0.5 flex-wrap">
+                                <span className="flex items-center gap-1 shrink-0">
                                   <Calendar className="w-3 h-3" />
                                   {new Date(doc.createdAt).toLocaleDateString()}
                                 </span>
-                                <span>•</span>
-                                <span>{(doc.size / 1024).toFixed(1)} KB</span>
-                                <span>•</span>
-                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                <span className="shrink-0">•</span>
+                                <span className="shrink-0">{(doc.size / 1024).toFixed(1)} KB</span>
+                                <span className="shrink-0">•</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold shrink-0 ${
                                   doc.status === 'COMPLETED' ? 'bg-brand-success/15 text-brand-success' :
                                   doc.status === 'FAILED' ? 'bg-brand-error/15 text-brand-error' :
                                   'bg-brand-warning/15 text-brand-warning animate-pulse'
@@ -428,8 +430,8 @@ export const Dashboard: React.FC = () => {
                                 </span>
                                 {doc.classification && (
                                   <>
-                                    <span>•</span>
-                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-brand-primary/20 text-brand-primary border border-brand-primary/30 uppercase tracking-wider">
+                                    <span className="shrink-0">•</span>
+                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-brand-primary/20 text-brand-primary border border-brand-primary/30 uppercase tracking-wider shrink-0">
                                       {doc.classification.label} ({Math.round(doc.classification.confidence * 100)}%)
                                     </span>
                                   </>
@@ -467,11 +469,7 @@ export const Dashboard: React.FC = () => {
                               <Download className="w-4 h-4" />
                             </button>
                             <button 
-                              onClick={() => {
-                                if (confirm('Delete this document and all associated data?')) {
-                                  deleteMutation.mutate(doc.id);
-                                }
-                              }}
+                              onClick={() => setDeletingDocId(doc.id)}
                               className="p-2 border border-brand-border hover:bg-brand-error/10 rounded-lg text-brand-textMuted hover:text-brand-error transition-all"
                               title="Delete"
                             >
@@ -710,6 +708,23 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Delete Document Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deletingDocId !== null}
+        title="Delete Document"
+        message="Are you sure you want to delete this document and all its associated data? This action cannot be undone."
+        confirmText="Delete Document"
+        cancelText="Cancel"
+        onConfirm={() => {
+          if (deletingDocId) {
+            deleteMutation.mutate(deletingDocId);
+            setDeletingDocId(null);
+          }
+        }}
+        onCancel={() => setDeletingDocId(null)}
+        type="danger"
+      />
     </MainLayout>
   );
 };
