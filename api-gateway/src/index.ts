@@ -17,6 +17,7 @@ import { apiLimiter } from './middleware/rateLimiter';
 import { logger } from './utils/logger';
 import { initializeBucket } from './config/storage';
 import { startQueueWorker } from './jobs/worker';
+import path from 'path';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -40,6 +41,9 @@ app.use((req, res, next) => {
   logger.info(`HTTP Request - Method: ${req.method} | URL: ${req.url} | IP: ${req.ip}`);
   next();
 });
+
+// 3.5. Local uploads static routing fallback
+app.use('/api/v1/documents/raw', express.static(path.join(__dirname, '../uploads')));
 
 // 4. Rate Limiter (Apply generally to all api routes)
 app.use('/api', apiLimiter);

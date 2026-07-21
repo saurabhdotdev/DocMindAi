@@ -2,6 +2,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { s3Client, initializeBucket as initializeS3Bucket } from './s3';
 import { logger } from '../utils/logger';
+import fs from 'fs';
+import path from 'path';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
@@ -24,6 +26,12 @@ export const getSupabaseAdmin = (): SupabaseClient => {
 };
 
 let isBucketInitialized = false;
+let useLocalFilesystemFallback = false;
+
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 export const initializeBucket = async () => {
   if (isBucketInitialized) return;
@@ -47,13 +55,23 @@ export const initializeBucket = async () => {
       setTimeout(initializeBucket, 5000);
     }
   } else {
+    // If no LocalStack endpoint or AWS configuration, fallback immediately to local storage directory
+    const hasS3Config = !!(process.env.S3_ENDPOINT || (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY));
+    if (!hasS3Config) {
+      logger.info('Neither Supabase nor LocalStack/AWS credentials found. Falling back to local filesystem storage.');
+      useLocalFilesystemFallback = true;
+      isBucketInitialized = true;
+      return;
+    }
+
     logger.info('Supabase URL/Service Key not set. Falling back to LocalStack S3 Storage.');
     try {
       await initializeS3Bucket();
       isBucketInitialized = true;
     } catch (err: any) {
-      logger.error(`Failed to initialize fallback LocalStack S3: ${err.message}. Retrying in 5 seconds...`);
-      setTimeout(initializeBucket, 5000);
+      logger.error(`Failed to initialize fallback LocalStack S3: ${err.message}. Enabling local filesystem fallback.`);
+      useLocalFilesystemFallback = true;
+      isBucketInitialized = true;
     }
   }
 };
@@ -67,6 +85,11 @@ export async function uploadToStorage(key: string, buffer: Buffer, mimeType: str
       upsert: true,
     });
     if (error) throw new Error(`Supabase upload failed: ${error.message}`);
+    return key;
+  } else if (useLocalFilesystemFallback) {
+    const filePath = path.join(UPLOADS_DIR, key);
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, buffer);
     return key;
   } else {
     await s3Client.send(
@@ -89,6 +112,9 @@ export async function downloadFromStorage(key: string): Promise<Buffer> {
     if (error) throw new Error(`Supabase download failed: ${error.message}`);
     const arrayBuffer = await data.arrayBuffer();
     return Buffer.from(arrayBuffer);
+  } else if (useLocalFilesystemFallback) {
+    const filePath = path.join(UPLOADS_DIR, key);
+    return await fs.promises.readFile(filePath);
   } else {
     const res = await s3Client.send(
       new GetObjectCommand({
@@ -96,7 +122,6 @@ export async function downloadFromStorage(key: string): Promise<Buffer> {
         Key: key,
       })
     );
-    // Convert ReadableStream to Buffer
     const streamToBuffer = async (stream: any): Promise<Buffer> => {
       const chunks: any[] = [];
       for await (const chunk of stream) {
@@ -114,6 +139,10 @@ export function getPublicUrl(key: string): string {
     const client = getSupabaseAdmin();
     const { data } = client.storage.from(STORAGE_BUCKET).getPublicUrl(key);
     return data.publicUrl;
+  } else if (useLocalFilesystemFallback) {
+    // Returns relative static routing served by Express index.ts
+    const host = process.env.API_GATEWAY_URL || '';
+    return `${host}/api/v1/documents/raw/${key}`;
   } else {
     const endpoint = process.env.PUBLIC_S3_ENDPOINT || process.env.S3_ENDPOINT || 'http://localhost:4566';
     return `${endpoint}/${STORAGE_BUCKET}/${key}`;
@@ -126,6 +155,11 @@ export async function deleteFromStorage(key: string): Promise<void> {
     const client = getSupabaseAdmin();
     const { error } = await client.storage.from(STORAGE_BUCKET).remove([key]);
     if (error) throw new Error(`Supabase delete failed: ${error.message}`);
+  } else if (useLocalFilesystemFallback) {
+    const filePath = path.join(UPLOADS_DIR, key);
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+    }
   } else {
     await s3Client.send(
       new DeleteObjectCommand({
