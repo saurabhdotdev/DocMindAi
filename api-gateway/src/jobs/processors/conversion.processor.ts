@@ -136,9 +136,8 @@ export class ConversionProcessor implements IJobProcessor {
       if (originalExt === '.pdf') {
         try {
           logger.info(`[ConversionProcessor] Extracting text from PDF via pdf-parse...`);
-          const { PDFParse } = require('pdf-parse');
-          const parser = new PDFParse({ data: originalFileBuffer });
-          const pdfData = await parser.getText();
+          const pdfParse = require('pdf-parse');
+          const pdfData = await pdfParse(originalFileBuffer);
           extractedText = pdfData.text || '';
         } catch (pdfErr: any) {
           logger.error(`[ConversionProcessor] pdf-parse failed: ${pdfErr.message}`);
