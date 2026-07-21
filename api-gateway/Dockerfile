@@ -48,5 +48,5 @@ COPY --from=builder /app/dist ./dist
 # Expose port
 EXPOSE 5000
 
-# Run the server
-CMD ["node", "dist/index.js"]
+# Run the server with automatic database schema sync on boot
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node dist/index.js"]
